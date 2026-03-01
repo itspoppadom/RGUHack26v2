@@ -68,12 +68,16 @@ const state = {
   lastPosition: null,
   won: false,
   miniMap: null,
+  startMarker: null,
+  finishMarker: null,
   playerMarker: null,
-  goalMarker: null,
   fogCtx: null,
   fogExpanded: false,
   visitedPositions: [],
   roundFlashTimer: null,
+  roundPreviewTimer: null,
+  roundPreviewTick: null,
+  previewRunId: 0,
   qteTriggered: false,
   qteActive: false,
   qtePressCount: 0,
@@ -249,6 +253,154 @@ function sanitizeUsername(rawValue) {
 
 function setLandingStatus(message) {
   elements.landingStatus.textContent = message;
+}
+
+function clearRoundPreviewTimers() {
+  state.previewRunId += 1;
+  if (state.roundPreviewTimer) {
+    clearTimeout(state.roundPreviewTimer);
+    state.roundPreviewTimer = null;
+  }
+  if (state.roundPreviewTick) {
+    clearInterval(state.roundPreviewTick);
+    state.roundPreviewTick = null;
+  }
+}
+
+function previewWait(ms) {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
+function waitForMapIdleOrTimeout(map, timeoutMs = 2000) {
+  return new Promise((resolve) => {
+    let finished = false;
+
+    const finish = () => {
+      if (finished) {
+        return;
+      }
+      finished = true;
+      resolve();
+    };
+
+    const listener = map.addListener("idle", () => {
+      listener.remove();
+      finish();
+    });
+
+    setTimeout(() => {
+      listener.remove();
+      finish();
+    }, timeoutMs);
+  });
+}
+
+async function animateMarkerAttention(marker, basePosition, durationMs, runId) {
+  if (!marker || !basePosition || runId !== state.previewRunId) {
+    return;
+  }
+
+  marker.setAnimation(google.maps.Animation.BOUNCE);
+  const startedAt = Date.now();
+
+  while (Date.now() - startedAt < durationMs && runId === state.previewRunId) {
+    const elapsed = Date.now() - startedAt;
+    const oscillation = Math.sin(elapsed / 90) * 2.3;
+    const heading = oscillation >= 0 ? 90 : 270;
+    const offset = google.maps.geometry.spherical.computeOffset(
+      basePosition,
+      Math.abs(oscillation),
+      heading
+    );
+    marker.setPosition(offset);
+    await previewWait(100);
+  }
+
+  marker.setAnimation(null);
+  marker.setPosition(basePosition);
+}
+
+function clearRoundMarkers() {
+  if (state.startMarker) {
+    state.startMarker.setMap(null);
+    state.startMarker = null;
+  }
+  if (state.finishMarker) {
+    state.finishMarker.setMap(null);
+    state.finishMarker = null;
+  }
+  if (state.playerMarker) {
+    state.playerMarker.setMap(null);
+    state.playerMarker = null;
+  }
+}
+
+function showRoundMapPreview(durationMs = 10000) {
+  clearRoundPreviewTimers();
+  const runId = ++state.previewRunId;
+  let remainingSeconds = Math.ceil(durationMs / 1000);
+  const level = getCurrentLevel();
+  const startLatLng = new google.maps.LatLng(level.start.lat, level.start.lng);
+  const finishLatLng = new google.maps.LatLng(level.goal.lat, level.goal.lng);
+  const startAttentionMs = 3000;
+  const panAndCenterMs = 2200;
+  const finishAttentionMs = 3000;
+  const remainingHoldMs = Math.max(
+    0,
+    durationMs - startAttentionMs - panAndCenterMs - finishAttentionMs
+  );
+
+  elements.fogPanel.classList.add("map-preview");
+  setFogExpanded(true);
+  state.miniMap?.setCenter(startLatLng);
+  elements.status.textContent = `Round briefing: ${remainingSeconds}s`;
+
+  return new Promise((resolve) => {
+    state.roundPreviewTick = setInterval(() => {
+      if (runId !== state.previewRunId) {
+        clearRoundPreviewTimers();
+        return;
+      }
+      remainingSeconds = Math.max(0, remainingSeconds - 1);
+      elements.status.textContent = `Round briefing: ${remainingSeconds}s`;
+    }, 1000);
+
+    state.roundPreviewTimer = setTimeout(() => {
+      if (runId !== state.previewRunId) {
+        return;
+      }
+      clearRoundPreviewTimers();
+      elements.fogPanel.classList.remove("map-preview");
+      setFogExpanded(false);
+      resolve();
+    }, durationMs);
+
+    (async () => {
+      await animateMarkerAttention(state.startMarker, startLatLng, startAttentionMs, runId);
+      if (runId !== state.previewRunId || !state.miniMap) {
+        return;
+      }
+
+      elements.status.textContent = `Round briefing: moving to finish...`;
+      state.miniMap.panTo(finishLatLng);
+      await waitForMapIdleOrTimeout(state.miniMap, panAndCenterMs);
+
+      if (runId !== state.previewRunId) {
+        return;
+      }
+
+      await animateMarkerAttention(state.finishMarker, finishLatLng, finishAttentionMs, runId);
+      if (runId !== state.previewRunId) {
+        return;
+      }
+
+      if (remainingHoldMs > 0) {
+        await previewWait(remainingHoldMs);
+      }
+    })();
+  });
 }
 
 function renderQteCountdown() {
@@ -589,6 +741,30 @@ function initializeFogMap() {
     state.miniMap.setZoom(FOG_ZOOM_LEVEL);
   }
 
+  if (!state.startMarker) {
+    state.startMarker = new google.maps.Marker({
+      map: state.miniMap,
+      position: start,
+      title: "Start",
+      label: "S"
+    });
+  } else {
+    state.startMarker.setMap(state.miniMap);
+    state.startMarker.setPosition(start);
+  }
+
+  if (!state.finishMarker) {
+    state.finishMarker = new google.maps.Marker({
+      map: state.miniMap,
+      position: goal,
+      title: "Finish",
+      label: "F"
+    });
+  } else {
+    state.finishMarker.setMap(state.miniMap);
+    state.finishMarker.setPosition(goal);
+  }
+
   if (!state.playerMarker) {
     state.playerMarker = new google.maps.Marker({
       map: state.miniMap,
@@ -604,19 +780,9 @@ function initializeFogMap() {
       }
     });
   } else {
+    state.playerMarker.setMap(state.miniMap);
     state.playerMarker.setPosition(start);
   }
-
-  if (!state.goalMarker) {
-    state.goalMarker = new google.maps.Marker({
-      map: state.miniMap,
-      position: goal,
-      title: "Goal"
-    });
-  } else {
-    state.goalMarker.setPosition(goal);
-  }
-  state.goalMarker.setVisible(false);
 
   state.visitedPositions = [start];
 
@@ -797,9 +963,9 @@ function onPositionChanged() {
 
   if (state.distanceToGoalMeters <= (config.WIN_RADIUS_METERS ?? 15)) {
     state.won = true;
-    state.goalMarker?.setVisible(true);
     setFogExpanded(true);
     redrawFogMask();
+    clearRoundMarkers();
     const currentLevelNumber = state.currentLevelIndex + 1;
     const hasNextLevel = currentLevelNumber < state.levels.length;
     const roundSummary = {
@@ -874,6 +1040,8 @@ function initializePanorama() {
 function resetState() {
   hideRoundFlash();
   hideQteOverlay();
+  clearRoundPreviewTimers();
+  elements.fogPanel.classList.remove("map-preview");
   state.startedAt = Date.now();
   state.moveCount = 0;
   state.clickCount = 0;
@@ -907,8 +1075,9 @@ async function restartGame() {
 
   renderLevelMeta();
   resetState();
+  clearRoundMarkers();
   initializeFogMap();
-  setFogExpanded(false);
+  await showRoundMapPreview(10000);
   initializePanorama();
   try {
     await startSession();

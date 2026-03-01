@@ -221,6 +221,20 @@ body {
   width: min(360px, 92vw);
 }
 
+#fogPanel.map-preview {
+  left: 16px;
+  right: 16px;
+  top: 16px;
+  bottom: 16px;
+  width: auto;
+  z-index: 4;
+}
+
+#fogPanel.map-preview #fogMapWrap {
+  aspect-ratio: auto;
+  height: calc(100vh - 120px);
+}
+
 .fogHeader {
   display: flex;
   align-items: center;
