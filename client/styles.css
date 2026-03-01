@@ -104,6 +104,35 @@ body {
   margin-top: 10px;
 }
 
+#qteOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 4;
+  display: grid;
+  place-items: center;
+  background: rgba(2, 6, 23, 0.74);
+}
+
+#qteOverlay.hidden {
+  display: none;
+}
+
+.qteCard {
+  width: min(520px, 92vw);
+  border-radius: 14px;
+  background: rgba(15, 23, 42, 0.95);
+  color: #fff;
+  padding: 18px;
+}
+
+.qteCard h2 {
+  margin: 0 0 10px;
+}
+
+.qteCard p {
+  margin: 8px 0;
+}
+
 #pano {
   position: fixed;
   inset: 0;

@@ -19,6 +19,11 @@ const elements = {
   flashMoves: document.getElementById("flashMoves"),
   flashDiscover: document.getElementById("flashDiscover"),
   flashContinue: document.getElementById("flashContinue"),
+  qteOverlay: document.getElementById("qteOverlay"),
+  qteTitle: document.getElementById("qteTitle"),
+  qteMessage: document.getElementById("qteMessage"),
+  qteProgress: document.getElementById("qteProgress"),
+  qteClose: document.getElementById("qteClose"),
   distance: document.getElementById("distance"),
   timer: document.getElementById("timer"),
   moves: document.getElementById("moves"),
@@ -62,7 +67,12 @@ const state = {
   fogCtx: null,
   fogExpanded: false,
   visitedPositions: [],
-  roundFlashTimer: null
+  roundFlashTimer: null,
+  qteTriggered: false,
+  qteActive: false,
+  qtePressCount: 0,
+  qteScoreReduction: 0,
+  qteTimer: null
 };
 
 const FOG_ZOOM_LEVEL = 17;
@@ -70,6 +80,11 @@ const FOG_ALPHA = 0.85;
 const FOG_REVEAL_RADIUS_PX = 32;
 const MAX_VISITED_POINTS = 2500;
 const MAX_FOG_PAYLOAD_POINTS = 1200;
+const ST_NICS_INTERCEPT = { lat: 57.14696712569186, lng: -2.097676156362164 };
+const QTE_TRIGGER_RADIUS_METERS = 5;
+const QTE_REQUIRED_PRESSES = 18;
+const QTE_DURATION_MS = 7000;
+const QTE_SCORE_REDUCTION = 20;
 
 function assertConfig() {
   if (!config || !config.GOOGLE_MAPS_API_KEY) {
@@ -130,6 +145,75 @@ function sanitizeUsername(rawValue) {
 
 function setLandingStatus(message) {
   elements.landingStatus.textContent = message;
+}
+
+function hideQteOverlay() {
+  if (state.qteTimer) {
+    clearTimeout(state.qteTimer);
+    state.qteTimer = null;
+  }
+  state.qteActive = false;
+  elements.qteOverlay.classList.add("hidden");
+  elements.qteClose.classList.add("hidden");
+}
+
+function showQteSuccess() {
+  elements.qteTitle.textContent = "Dominance asserted";
+  elements.qteMessage.textContent = "You T-posed hard. The seagull dropped your chips and flew off. Score reduced.";
+  elements.qteProgress.textContent = `Score reduction applied: -${QTE_SCORE_REDUCTION}`;
+  elements.qteClose.classList.remove("hidden");
+}
+
+function completeQteSuccess() {
+  if (!state.qteActive) {
+    return;
+  }
+
+  state.qteActive = false;
+  state.qteScoreReduction += QTE_SCORE_REDUCTION;
+  renderStats();
+  showQteSuccess();
+}
+
+function startQte() {
+  if (state.qteTriggered || state.qteActive || state.won) {
+    return;
+  }
+
+  state.qteTriggered = true;
+  state.qteActive = true;
+  state.qtePressCount = 0;
+  elements.qteTitle.textContent = "Seagull Alert!";
+  elements.qteMessage.textContent = "The Carry-on at St Nics has distracted you, and a seagull is trying to steal your chips! Press <T>, to T pose to assert dominance";
+  elements.qteProgress.textContent = `T Presses: 0 / ${QTE_REQUIRED_PRESSES}`;
+  elements.qteClose.classList.add("hidden");
+  elements.qteOverlay.classList.remove("hidden");
+
+  state.qteTimer = setTimeout(() => {
+    if (!state.qteActive) {
+      return;
+    }
+    state.qteActive = false;
+    elements.qteTitle.textContent = "Seagull wins this round";
+    elements.qteMessage.textContent = "Too slow. The seagull nicked your chips and escaped.";
+    elements.qteProgress.textContent = "No score reduction awarded.";
+    elements.qteClose.classList.remove("hidden");
+  }, QTE_DURATION_MS);
+}
+
+function maybeTriggerQte(currentPosition) {
+  if (state.qteTriggered || state.won) {
+    return;
+  }
+
+  const distance = google.maps.geometry.spherical.computeDistanceBetween(
+    currentPosition,
+    new google.maps.LatLng(ST_NICS_INTERCEPT.lat, ST_NICS_INTERCEPT.lng)
+  );
+
+  if (distance <= QTE_TRIGGER_RADIUS_METERS) {
+    startQte();
+  }
 }
 
 function hideRoundFlash() {
@@ -407,18 +491,20 @@ function calculateScore(elapsedMs) {
   const elapsedSeconds = Math.floor(elapsedMs / 1000);
 
   if (mode === "efficiency") {
-    return Math.round(
+    return Math.max(0, Math.round(
       state.totalDistanceMeters +
         state.moveCount * (config.MOVE_PENALTY ?? 4) +
-        state.clickCount * (config.CLICK_PENALTY ?? 2)
-    );
+        state.clickCount * (config.CLICK_PENALTY ?? 2) -
+        state.qteScoreReduction
+    ));
   }
 
-  return Math.round(
+  return Math.max(0, Math.round(
     elapsedSeconds +
       state.moveCount * (config.MOVE_PENALTY ?? 4) +
-      state.clickCount * (config.CLICK_PENALTY ?? 2)
-  );
+      state.clickCount * (config.CLICK_PENALTY ?? 2) -
+      state.qteScoreReduction
+  ));
 }
 
 function renderStats() {
@@ -490,7 +576,8 @@ async function completeSession() {
     clickCount: state.clickCount,
     totalDistanceMeters: state.totalDistanceMeters,
     fogTrail: serializeFogTrail(),
-    discoveredPoints: state.visitedPositions.length
+    discoveredPoints: state.visitedPositions.length,
+    qteScoreReduction: state.qteScoreReduction
   };
 
   const response = await fetch(
@@ -563,6 +650,7 @@ function onPositionChanged() {
     state.goal
   );
   updateMiniMapPosition(current);
+  maybeTriggerQte(current);
 
   renderStats();
 
@@ -644,6 +732,7 @@ function initializePanorama() {
 
 function resetState() {
   hideRoundFlash();
+  hideQteOverlay();
   state.startedAt = Date.now();
   state.moveCount = 0;
   state.clickCount = 0;
@@ -653,6 +742,10 @@ function resetState() {
   state.score = 0;
   state.won = false;
   state.visitedPositions = [];
+  state.qteTriggered = false;
+  state.qteActive = false;
+  state.qtePressCount = 0;
+  state.qteScoreReduction = 0;
   elements.status.textContent = "Navigate to the hidden goal.";
   renderStats();
 
@@ -691,6 +784,27 @@ window.addEventListener("resize", () => {
 
 elements.fogToggle.addEventListener("click", () => {
   setFogExpanded(!state.fogExpanded);
+});
+
+elements.qteClose.addEventListener("click", () => {
+  hideQteOverlay();
+});
+
+window.addEventListener("keydown", (event) => {
+  if (!state.qteActive) {
+    return;
+  }
+
+  if (event.key.toLowerCase() !== "t") {
+    return;
+  }
+
+  state.qtePressCount += 1;
+  elements.qteProgress.textContent = `T Presses: ${state.qtePressCount} / ${QTE_REQUIRED_PRESSES}`;
+
+  if (state.qtePressCount >= QTE_REQUIRED_PRESSES) {
+    completeQteSuccess();
+  }
 });
 
 elements.startGameBtn.addEventListener("click", async () => {

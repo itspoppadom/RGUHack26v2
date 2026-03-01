@@ -109,20 +109,23 @@ function computeScore(payload, mode) {
   const elapsedSeconds = Math.floor(payload.elapsedMs / 1000);
   const movePenalty = 4;
   const clickPenalty = 2;
+  const qteScoreReduction = Math.max(0, Number(payload.qteScoreReduction || 0));
 
   if (mode === "efficiency") {
-    return Math.round(
+    return Math.max(0, Math.round(
       Math.max(payload.totalDistanceMeters, 0) +
         Math.max(payload.moveCount, 0) * movePenalty +
-        Math.max(payload.clickCount, 0) * clickPenalty
-    );
+        Math.max(payload.clickCount, 0) * clickPenalty -
+        qteScoreReduction
+    ));
   }
 
-  return Math.round(
+  return Math.max(0, Math.round(
     Math.max(elapsedSeconds, 0) +
       Math.max(payload.moveCount, 0) * movePenalty +
-      Math.max(payload.clickCount, 0) * clickPenalty
-  );
+      Math.max(payload.clickCount, 0) * clickPenalty -
+      qteScoreReduction
+  ));
 }
 
 function sanitizeUsername(value) {
@@ -403,7 +406,8 @@ app.post("/api/sessions/:sessionId/complete", async (req, res) => {
     clickCount,
     totalDistanceMeters,
     fogTrail,
-    discoveredPoints
+    discoveredPoints,
+    qteScoreReduction
   } = req.body ?? {};
   if (!currentPosition || typeof elapsedMs !== "number") {
     res.status(400).json({ error: "currentPosition and elapsedMs are required." });
@@ -427,7 +431,8 @@ app.post("/api/sessions/:sessionId/complete", async (req, res) => {
     elapsedMs,
     moveCount: Number(moveCount || 0),
     clickCount: Number(clickCount || 0),
-    totalDistanceMeters: Number(totalDistanceMeters || 0)
+    totalDistanceMeters: Number(totalDistanceMeters || 0),
+    qteScoreReduction: Number(qteScoreReduction || 0)
   };
   const safeFogTrail = sanitizeFogTrail(fogTrail);
   const safeDiscoveredPoints = Number(discoveredPoints || safeFogTrail.length || 0);
