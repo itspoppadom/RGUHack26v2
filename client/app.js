@@ -54,6 +54,7 @@ const state = {
   panorama: null,
   goal: null,
   sessionId: null,
+  currentRunId: "",
   username: "",
   gameInitialized: false,
   levels: [],
@@ -249,6 +250,13 @@ function setGameVisible(visible) {
 
 function sanitizeUsername(rawValue) {
   return rawValue.trim().replace(/\s+/g, " ").slice(0, 24);
+}
+
+function generateRunId() {
+  if (globalThis.crypto?.randomUUID) {
+    return globalThis.crypto.randomUUID();
+  }
+  return `run-${Date.now()}-${Math.floor(Math.random() * 1_000_000)}`;
 }
 
 function setLandingStatus(message) {
@@ -850,6 +858,8 @@ async function startSession() {
 
   const payload = {
     username: state.username,
+    runId: state.currentRunId,
+    expectedRounds: state.levels.length,
     startLocation: level.start,
     goalLocation: level.goal,
     mode: elements.mode.value,
@@ -1126,6 +1136,7 @@ elements.startGameBtn.addEventListener("click", async () => {
   }
 
   state.username = username;
+  state.currentRunId = generateRunId();
   state.currentLevelIndex = 0;
   renderLevelMeta();
   elements.playerName.textContent = username;

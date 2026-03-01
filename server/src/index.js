@@ -39,6 +39,7 @@ app.use(express.json());
 
 const sessions = new Map();
 const leaderboard = [];
+const users = new Map();
 const { Pool } = pg;
 let pool = null;
 let postgresReady = false;
@@ -56,8 +57,18 @@ async function initializeDatabase() {
   }
 
   await pool.query(`
+    CREATE TABLE IF NOT EXISTS users (
+      username_key TEXT PRIMARY KEY,
+      username TEXT NOT NULL UNIQUE,
+      created_at BIGINT NOT NULL
+    )
+  `);
+
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS sessions (
       session_id TEXT PRIMARY KEY,
+      run_id TEXT,
+      expected_rounds INTEGER NOT NULL DEFAULT 1,
       username TEXT NOT NULL,
       mode TEXT NOT NULL,
       start_lat DOUBLE PRECISION NOT NULL,
@@ -76,6 +87,9 @@ async function initializeDatabase() {
       fog_trail JSONB
     )
   `);
+
+  await pool.query(`ALTER TABLE sessions ADD COLUMN IF NOT EXISTS run_id TEXT`);
+  await pool.query(`ALTER TABLE sessions ADD COLUMN IF NOT EXISTS expected_rounds INTEGER NOT NULL DEFAULT 1`);
 
   await pool.query(`
     CREATE INDEX IF NOT EXISTS sessions_mode_score_idx
@@ -135,6 +149,40 @@ function sanitizeUsername(value) {
     .slice(0, 24);
 }
 
+function usernameKey(username) {
+  return sanitizeUsername(username).toLowerCase();
+}
+
+async function ensureUniqueUser(username) {
+  const safeUsername = sanitizeUsername(username);
+  const key = usernameKey(safeUsername);
+  if (!safeUsername) {
+    throw new Error("username is required.");
+  }
+
+  if (postgresReady && pool) {
+    const existing = await pool.query(
+      `SELECT username FROM users WHERE username_key = $1 LIMIT 1`,
+      [key]
+    );
+    if (!existing.rows.length) {
+      await pool.query(
+        `INSERT INTO users (username_key, username, created_at) VALUES ($1, $2, $3)`,
+        [key, safeUsername, Date.now()]
+      );
+      return safeUsername;
+    }
+    return existing.rows[0].username;
+  }
+
+  if (!users.has(key)) {
+    users.set(key, safeUsername);
+    return safeUsername;
+  }
+
+  return users.get(key);
+}
+
 function sanitizeFogTrail(input) {
   if (!Array.isArray(input)) {
     return [];
@@ -158,6 +206,8 @@ async function persistSessionStart(session) {
     `
       INSERT INTO sessions (
         session_id,
+        run_id,
+        expected_rounds,
         username,
         mode,
         start_lat,
@@ -166,10 +216,12 @@ async function persistSessionStart(session) {
         goal_lng,
         win_radius_meters,
         started_at
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
     `,
     [
       session.sessionId,
+      session.runId,
+      session.expectedRounds,
       session.username,
       session.mode,
       session.startLocation.lat,
@@ -215,80 +267,98 @@ async function persistSessionComplete(entry, sessionId) {
   );
 }
 
-async function getLeaderboardRows(mode) {
-  if (postgresReady && pool) {
-    if (mode) {
-      const result = await pool.query(
-        `
-          SELECT
-            username,
-            mode,
-            SUM(score)::int AS score,
-            COUNT(*)::int AS "roundsPlayed",
-            SUM(elapsed_ms)::int AS "totalElapsedMs",
-            SUM(move_count)::int AS "totalMoveCount",
-            SUM(click_count)::int AS "totalClickCount",
-            MAX(completed_at)::bigint AS "createdAt"
-          FROM sessions
-          WHERE completed_at IS NOT NULL AND mode = $1
-          GROUP BY username, mode
-          ORDER BY score ASC, "totalElapsedMs" ASC
-          LIMIT 10
-        `,
-        [mode]
-      );
-      return result.rows;
-    }
+function finalizeRunLeaderboardRows(rows, mode) {
+  const completedRuns = new Map();
 
-    const result = await pool.query(`
-      SELECT
-        username,
-        'all' AS mode,
-        SUM(score)::int AS score,
-        COUNT(*)::int AS "roundsPlayed",
-        SUM(elapsed_ms)::int AS "totalElapsedMs",
-        SUM(move_count)::int AS "totalMoveCount",
-        SUM(click_count)::int AS "totalClickCount",
-        MAX(completed_at)::bigint AS "createdAt"
-      FROM sessions
-      WHERE completed_at IS NOT NULL
-      GROUP BY username
-      ORDER BY score ASC, "totalElapsedMs" ASC
-      LIMIT 10
-    `);
-    return result.rows;
-  }
-
-  const rows = mode
-    ? leaderboard.filter((entry) => entry.mode === mode)
-    : leaderboard;
-
-  const combinedByUser = new Map();
   rows.forEach((entry) => {
-    const key = entry.username || "anon";
-    const current = combinedByUser.get(key) || {
-      username: key,
-      mode: mode || "all",
-      score: 0,
+    const runId = entry.runId || entry.sessionId;
+    const existing = completedRuns.get(runId) || {
+      runId,
+      username: entry.username,
+      mode: mode || entry.mode || "all",
+      expectedRounds: Number(entry.expectedRounds || 1),
       roundsPlayed: 0,
+      score: 0,
       totalElapsedMs: 0,
       totalMoveCount: 0,
       totalClickCount: 0,
       createdAt: 0
     };
 
-    current.score += Number(entry.score || 0);
-    current.roundsPlayed += 1;
-    current.totalElapsedMs += Number(entry.elapsedMs || 0);
-    current.totalMoveCount += Number(entry.moveCount || 0);
-    current.totalClickCount += Number(entry.clickCount || 0);
-    current.createdAt = Math.max(current.createdAt, Number(entry.createdAt || 0));
-    combinedByUser.set(key, current);
+    existing.roundsPlayed += 1;
+    existing.score += Number(entry.score || 0);
+    existing.totalElapsedMs += Number(entry.elapsedMs || 0);
+    existing.totalMoveCount += Number(entry.moveCount || 0);
+    existing.totalClickCount += Number(entry.clickCount || 0);
+    existing.createdAt = Math.max(existing.createdAt, Number(entry.createdAt || 0));
+    existing.expectedRounds = Math.max(existing.expectedRounds, Number(entry.expectedRounds || 1));
+    completedRuns.set(runId, existing);
   });
 
-  return [...combinedByUser.values()]
+  const fullRuns = [...completedRuns.values()].filter(
+    (entry) => entry.roundsPlayed >= entry.expectedRounds
+  );
+
+  const bestByUser = new Map();
+  fullRuns.forEach((entry) => {
+    const key = usernameKey(entry.username || "anon");
+    const previous = bestByUser.get(key);
+    if (
+      !previous ||
+      entry.score < previous.score ||
+      (entry.score === previous.score && entry.totalElapsedMs < previous.totalElapsedMs)
+    ) {
+      bestByUser.set(key, entry);
+    }
+  });
+
+  return [...bestByUser.values()]
     .sort((a, b) => a.score - b.score || a.totalElapsedMs - b.totalElapsedMs)
     .slice(0, 10);
+}
+async function getLeaderboardRows(mode) {
+  if (postgresReady && pool) {
+    const query = mode
+      ? `
+        SELECT
+          session_id AS "sessionId",
+          run_id AS "runId",
+          expected_rounds AS "expectedRounds",
+          username,
+          mode,
+          elapsed_ms AS "elapsedMs",
+          move_count AS "moveCount",
+          click_count AS "clickCount",
+          score,
+          completed_at AS "createdAt"
+        FROM sessions
+        WHERE completed_at IS NOT NULL AND mode = $1
+      `
+      : `
+        SELECT
+          session_id AS "sessionId",
+          run_id AS "runId",
+          expected_rounds AS "expectedRounds",
+          username,
+          mode,
+          elapsed_ms AS "elapsedMs",
+          move_count AS "moveCount",
+          click_count AS "clickCount",
+          score,
+          completed_at AS "createdAt"
+        FROM sessions
+        WHERE completed_at IS NOT NULL
+      `;
+
+    const result = mode ? await pool.query(query, [mode]) : await pool.query(query);
+    return finalizeRunLeaderboardRows(result.rows, mode);
+  }
+
+  const rows = mode
+    ? leaderboard.filter((entry) => entry.mode === mode)
+    : leaderboard;
+
+  return finalizeRunLeaderboardRows(rows, mode);
 }
 
 async function getUserProfile(username) {
@@ -350,11 +420,21 @@ app.get("/health", (_req, res) => {
 });
 
 app.post("/api/sessions/start", async (req, res) => {
-  const { username, startLocation, goalLocation, mode, winRadiusMeters } = req.body ?? {};
+  const {
+    username,
+    runId,
+    expectedRounds,
+    startLocation,
+    goalLocation,
+    mode,
+    winRadiusMeters
+  } = req.body ?? {};
   const safeUsername = sanitizeUsername(username);
+  const safeRunId = String(runId || "").trim();
+  const safeExpectedRounds = Math.max(1, Number(expectedRounds || 1));
 
-  if (!safeUsername) {
-    res.status(400).json({ error: "username is required." });
+  if (!safeUsername || !safeRunId) {
+    res.status(400).json({ error: "username and runId are required." });
     return;
   }
 
@@ -363,10 +443,20 @@ app.post("/api/sessions/start", async (req, res) => {
     return;
   }
 
+  let canonicalUsername;
+  try {
+    canonicalUsername = await ensureUniqueUser(safeUsername);
+  } catch (error) {
+    res.status(400).json({ error: error.message || "Invalid username." });
+    return;
+  }
+
   const sessionId = crypto.randomUUID();
   const session = {
     sessionId,
-    username: safeUsername,
+    runId: safeRunId,
+    expectedRounds: safeExpectedRounds,
+    username: canonicalUsername,
     startLocation,
     goalLocation,
     mode: mode || "speed-run",
@@ -444,6 +534,8 @@ app.post("/api/sessions/:sessionId/complete", async (req, res) => {
 
   const entry = {
     sessionId: session.sessionId,
+    runId: session.runId,
+    expectedRounds: session.expectedRounds,
     username: session.username,
     mode: session.mode,
     elapsedMs: payload.elapsedMs,
