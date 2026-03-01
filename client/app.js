@@ -1,6 +1,11 @@
 const config = window.GAME_CONFIG;
 
 const elements = {
+  splash: document.getElementById("splash"),
+  splashImage: document.getElementById("splashImage"),
+  splashTitle: document.getElementById("splashTitle"),
+  splashSubtitle: document.getElementById("splashSubtitle"),
+  splashContinue: document.getElementById("splashContinue"),
   landing: document.getElementById("landing"),
   usernameInput: document.getElementById("usernameInput"),
   startGameBtn: document.getElementById("startGameBtn"),
@@ -22,6 +27,7 @@ const elements = {
   qteOverlay: document.getElementById("qteOverlay"),
   qteTitle: document.getElementById("qteTitle"),
   qteMessage: document.getElementById("qteMessage"),
+  qteCountdown: document.getElementById("qteCountdown"),
   qteProgress: document.getElementById("qteProgress"),
   qteClose: document.getElementById("qteClose"),
   distance: document.getElementById("distance"),
@@ -72,7 +78,9 @@ const state = {
   qteActive: false,
   qtePressCount: 0,
   qteScoreReduction: 0,
-  qteTimer: null
+  qteTimer: null,
+  qteCountdownTick: null,
+  qteDeadlineMs: 0
 };
 
 const FOG_ZOOM_LEVEL = 17;
@@ -80,11 +88,107 @@ const FOG_ALPHA = 0.85;
 const FOG_REVEAL_RADIUS_PX = 32;
 const MAX_VISITED_POINTS = 2500;
 const MAX_FOG_PAYLOAD_POINTS = 1200;
-const ST_NICS_INTERCEPT = { lat: 57.14696712569186, lng: -2.097676156362164 };
-const QTE_TRIGGER_RADIUS_METERS = 5;
-const QTE_REQUIRED_PRESSES = 18;
-const QTE_DURATION_MS = 7000;
-const QTE_SCORE_REDUCTION = 20;
+const DEFAULT_QTE_CONFIG = {
+  interceptLocation: { lat: 57.14696712569186, lng: -2.097676156362164 },
+  triggerRadiusMeters: 5,
+  requiredPresses: 18,
+  durationMs: 7000,
+  scoreReduction: 20,
+  successTitle: "Dominance asserted",
+  successMessage: "You T-posed hard. The seagull dropped your chips and flew off. Score reduced.",
+  introTitle: "Seagull Alert!",
+  introMessage:
+    "The Carry-on at St Nics has distracted you, and a seagull is trying to steal your chips! Press <T>, to T pose to assert dominance",
+  failTitle: "Seagull wins this round",
+  failMessage: "Too slow. The seagull nicked your chips and escaped."
+};
+
+const DEFAULT_SPLASH_CONFIG = {
+  enabled: true,
+  imageUrl: "",
+  title: "Street View Challenge",
+  subtitle: "Press continue to begin",
+  continueLabel: "Continue"
+};
+
+function getSplashConfig() {
+  const source = config.SPLASH || {};
+  return {
+    enabled: source.enabled !== false,
+    imageUrl: source.imageUrl || DEFAULT_SPLASH_CONFIG.imageUrl,
+    title: source.title || DEFAULT_SPLASH_CONFIG.title,
+    subtitle: source.subtitle || DEFAULT_SPLASH_CONFIG.subtitle,
+    continueLabel: source.continueLabel || DEFAULT_SPLASH_CONFIG.continueLabel
+  };
+}
+
+function setLandingVisible(visible) {
+  elements.landing.classList.toggle("hidden", !visible);
+}
+
+function showSplash() {
+  setGameVisible(false);
+  setLandingVisible(false);
+  elements.splash.classList.remove("hidden");
+}
+
+function hideSplashShowLanding() {
+  elements.splash.classList.add("hidden");
+  setGameVisible(false);
+  setLandingVisible(true);
+  elements.usernameInput.focus();
+}
+
+function initializeSplash() {
+  const splash = getSplashConfig();
+  elements.splashTitle.textContent = splash.title;
+  elements.splashSubtitle.textContent = splash.subtitle;
+  elements.splashContinue.textContent = splash.continueLabel;
+
+  if (splash.imageUrl) {
+    elements.splashImage.src = splash.imageUrl;
+    elements.splashImage.classList.remove("hidden");
+  } else {
+    elements.splashImage.removeAttribute("src");
+    elements.splashImage.classList.add("hidden");
+  }
+
+  if (splash.enabled) {
+    showSplash();
+  } else {
+    hideSplashShowLanding();
+  }
+}
+
+function getQteConfig() {
+  const source = config.QTE || {};
+  const location = source.interceptLocation || source.location || DEFAULT_QTE_CONFIG.interceptLocation;
+
+  return {
+    interceptLocation: {
+      lat: Number.isFinite(location?.lat) ? location.lat : DEFAULT_QTE_CONFIG.interceptLocation.lat,
+      lng: Number.isFinite(location?.lng) ? location.lng : DEFAULT_QTE_CONFIG.interceptLocation.lng
+    },
+    triggerRadiusMeters: Number.isFinite(source.triggerRadiusMeters)
+      ? source.triggerRadiusMeters
+      : DEFAULT_QTE_CONFIG.triggerRadiusMeters,
+    requiredPresses: Number.isFinite(source.requiredPresses)
+      ? Math.max(1, Math.floor(source.requiredPresses))
+      : DEFAULT_QTE_CONFIG.requiredPresses,
+    durationMs: Number.isFinite(source.durationMs)
+      ? Math.max(500, Math.floor(source.durationMs))
+      : DEFAULT_QTE_CONFIG.durationMs,
+    scoreReduction: Number.isFinite(source.scoreReduction)
+      ? Math.max(0, Math.floor(source.scoreReduction))
+      : DEFAULT_QTE_CONFIG.scoreReduction,
+    successTitle: source.successTitle || DEFAULT_QTE_CONFIG.successTitle,
+    successMessage: source.successMessage || DEFAULT_QTE_CONFIG.successMessage,
+    introTitle: source.introTitle || DEFAULT_QTE_CONFIG.introTitle,
+    introMessage: source.introMessage || DEFAULT_QTE_CONFIG.introMessage,
+    failTitle: source.failTitle || DEFAULT_QTE_CONFIG.failTitle,
+    failMessage: source.failMessage || DEFAULT_QTE_CONFIG.failMessage
+  };
+}
 
 function assertConfig() {
   if (!config || !config.GOOGLE_MAPS_API_KEY) {
@@ -147,20 +251,48 @@ function setLandingStatus(message) {
   elements.landingStatus.textContent = message;
 }
 
+function renderQteCountdown() {
+  if (!state.qteActive || !state.qteDeadlineMs) {
+    return;
+  }
+
+  const remainingMs = Math.max(0, state.qteDeadlineMs - Date.now());
+  const remainingSeconds = (remainingMs / 1000).toFixed(1);
+  elements.qteCountdown.textContent = `Time Left: ${remainingSeconds}s`;
+}
+
+function stopQteCountdownTick() {
+  if (state.qteCountdownTick) {
+    clearInterval(state.qteCountdownTick);
+    state.qteCountdownTick = null;
+  }
+}
+
+function startQteCountdownTick() {
+  stopQteCountdownTick();
+  renderQteCountdown();
+  state.qteCountdownTick = setInterval(() => {
+    renderQteCountdown();
+  }, 100);
+}
+
 function hideQteOverlay() {
   if (state.qteTimer) {
     clearTimeout(state.qteTimer);
     state.qteTimer = null;
   }
+  stopQteCountdownTick();
+  state.qteDeadlineMs = 0;
   state.qteActive = false;
   elements.qteOverlay.classList.add("hidden");
   elements.qteClose.classList.add("hidden");
 }
 
 function showQteSuccess() {
-  elements.qteTitle.textContent = "Dominance asserted";
-  elements.qteMessage.textContent = "You T-posed hard. The seagull dropped your chips and flew off. Score reduced.";
-  elements.qteProgress.textContent = `Score reduction applied: -${QTE_SCORE_REDUCTION}`;
+  const qte = getQteConfig();
+  elements.qteTitle.textContent = qte.successTitle;
+  elements.qteMessage.textContent = qte.successMessage;
+  elements.qteProgress.textContent = `Score reduction applied: -${qte.scoreReduction}`;
   elements.qteClose.classList.remove("hidden");
 }
 
@@ -169,8 +301,10 @@ function completeQteSuccess() {
     return;
   }
 
+  const qte = getQteConfig();
   state.qteActive = false;
-  state.qteScoreReduction += QTE_SCORE_REDUCTION;
+  stopQteCountdownTick();
+  state.qteScoreReduction += qte.scoreReduction;
   renderStats();
   showQteSuccess();
 }
@@ -183,9 +317,12 @@ function startQte() {
   state.qteTriggered = true;
   state.qteActive = true;
   state.qtePressCount = 0;
-  elements.qteTitle.textContent = "Seagull Alert!";
-  elements.qteMessage.textContent = "The Carry-on at St Nics has distracted you, and a seagull is trying to steal your chips! Press <T>, to T pose to assert dominance";
-  elements.qteProgress.textContent = `T Presses: 0 / ${QTE_REQUIRED_PRESSES}`;
+  const qte = getQteConfig();
+  elements.qteTitle.textContent = qte.introTitle;
+  elements.qteMessage.textContent = qte.introMessage;
+  state.qteDeadlineMs = Date.now() + qte.durationMs;
+  startQteCountdownTick();
+  elements.qteProgress.textContent = `T Presses: 0 / ${qte.requiredPresses}`;
   elements.qteClose.classList.add("hidden");
   elements.qteOverlay.classList.remove("hidden");
 
@@ -194,11 +331,13 @@ function startQte() {
       return;
     }
     state.qteActive = false;
-    elements.qteTitle.textContent = "Seagull wins this round";
-    elements.qteMessage.textContent = "Too slow. The seagull nicked your chips and escaped.";
+    stopQteCountdownTick();
+    elements.qteCountdown.textContent = "Time Left: 0.0s";
+    elements.qteTitle.textContent = qte.failTitle;
+    elements.qteMessage.textContent = qte.failMessage;
     elements.qteProgress.textContent = "No score reduction awarded.";
     elements.qteClose.classList.remove("hidden");
-  }, QTE_DURATION_MS);
+  }, qte.durationMs);
 }
 
 function maybeTriggerQte(currentPosition) {
@@ -206,12 +345,14 @@ function maybeTriggerQte(currentPosition) {
     return;
   }
 
+  const qte = getQteConfig();
+
   const distance = google.maps.geometry.spherical.computeDistanceBetween(
     currentPosition,
-    new google.maps.LatLng(ST_NICS_INTERCEPT.lat, ST_NICS_INTERCEPT.lng)
+    new google.maps.LatLng(qte.interceptLocation.lat, qte.interceptLocation.lng)
   );
 
-  if (distance <= QTE_TRIGGER_RADIUS_METERS) {
+  if (distance <= qte.triggerRadiusMeters) {
     startQte();
   }
 }
@@ -799,10 +940,11 @@ window.addEventListener("keydown", (event) => {
     return;
   }
 
+  const qte = getQteConfig();
   state.qtePressCount += 1;
-  elements.qteProgress.textContent = `T Presses: ${state.qtePressCount} / ${QTE_REQUIRED_PRESSES}`;
+  elements.qteProgress.textContent = `T Presses: ${state.qtePressCount} / ${qte.requiredPresses}`;
 
-  if (state.qtePressCount >= QTE_REQUIRED_PRESSES) {
+  if (state.qtePressCount >= qte.requiredPresses) {
     completeQteSuccess();
   }
 });
@@ -834,6 +976,10 @@ elements.startGameBtn.addEventListener("click", async () => {
   }
 });
 
+elements.splashContinue.addEventListener("click", () => {
+  hideSplashShowLanding();
+});
+
 elements.usernameInput.addEventListener("keydown", (event) => {
   if (event.key === "Enter") {
     elements.startGameBtn.click();
@@ -846,7 +992,7 @@ async function bootstrap() {
     normalizeLevels();
     renderLevelMeta();
     await loadMapsApi();
-    setGameVisible(false);
+    initializeSplash();
     state.gameInitialized = true;
     elements.status.textContent = "Set username to start.";
   } catch (error) {

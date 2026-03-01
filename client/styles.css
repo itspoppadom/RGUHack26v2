@@ -20,6 +20,55 @@ body {
   overflow: hidden;
 }
 
+#splash {
+  position: fixed;
+  inset: 0;
+  z-index: 5;
+  display: grid;
+  place-items: center;
+  background: radial-gradient(circle at center, rgba(30, 41, 59, 0.94), rgba(2, 6, 23, 0.98));
+}
+
+#splash.hidden {
+  display: none;
+}
+
+.splashCard {
+  width: min(720px, 94vw);
+  display: grid;
+  gap: 10px;
+  justify-items: center;
+  text-align: center;
+  padding: 20px;
+  border-radius: 16px;
+  background: rgba(15, 23, 42, 0.75);
+  color: #fff;
+}
+
+#splashImage {
+  max-width: min(680px, 88vw);
+  max-height: 58vh;
+  width: auto;
+  height: auto;
+  border-radius: 14px;
+  animation: splashBreath 4.8s ease-in-out infinite;
+}
+
+@keyframes splashBreath {
+  0% {
+    transform: scale(0.985);
+    filter: brightness(0.96);
+  }
+  50% {
+    transform: scale(1.01);
+    filter: brightness(1.02);
+  }
+  100% {
+    transform: scale(0.985);
+    filter: brightness(0.96);
+  }
+}
+
 #landing {
   position: fixed;
   inset: 0;
