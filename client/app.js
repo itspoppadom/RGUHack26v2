@@ -1,15 +1,28 @@
 const config = window.GAME_CONFIG;
 
 const elements = {
+  landing: document.getElementById("landing"),
+  usernameInput: document.getElementById("usernameInput"),
+  startGameBtn: document.getElementById("startGameBtn"),
+  landingStatus: document.getElementById("landingStatus"),
+  playerSummary: document.getElementById("playerSummary"),
+  summaryScore: document.getElementById("summaryScore"),
+  summaryMode: document.getElementById("summaryMode"),
+  summaryDiscover: document.getElementById("summaryDiscover"),
+  playerName: document.getElementById("playerName"),
   distance: document.getElementById("distance"),
   timer: document.getElementById("timer"),
   moves: document.getElementById("moves"),
   clicks: document.getElementById("clicks"),
   score: document.getElementById("score"),
+  discovered: document.getElementById("discovered"),
   status: document.getElementById("status"),
   mode: document.getElementById("mode"),
   restartBtn: document.getElementById("restartBtn"),
+  hud: document.getElementById("hud"),
+  leaderboardPanel: document.getElementById("leaderboardPanel"),
   leaderboard: document.getElementById("leaderboard"),
+  pano: document.getElementById("pano"),
   fogPanel: document.getElementById("fogPanel"),
   fogToggle: document.getElementById("fogToggle"),
   fogBody: document.getElementById("fogBody"),
@@ -21,6 +34,8 @@ const state = {
   panorama: null,
   goal: null,
   sessionId: null,
+  username: "",
+  gameInitialized: false,
   startedAt: 0,
   timerTick: null,
   moveCount: 0,
@@ -42,6 +57,7 @@ const FOG_ZOOM_LEVEL = 17;
 const FOG_ALPHA = 0.85;
 const FOG_REVEAL_RADIUS_PX = 32;
 const MAX_VISITED_POINTS = 2500;
+const MAX_FOG_PAYLOAD_POINTS = 1200;
 
 function assertConfig() {
   if (!config || !config.GOOGLE_MAPS_API_KEY) {
@@ -50,6 +66,22 @@ function assertConfig() {
   if (config.GOOGLE_MAPS_API_KEY === "REPLACE_ME") {
     elements.status.textContent = "Set client/config.js with your Google API key.";
   }
+}
+
+function setGameVisible(visible) {
+  elements.hud.classList.toggle("hidden", !visible);
+  elements.leaderboardPanel.classList.toggle("hidden", !visible);
+  elements.fogPanel.classList.toggle("hidden", !visible);
+  elements.pano.classList.toggle("hidden", !visible);
+  elements.landing.classList.toggle("hidden", visible);
+}
+
+function sanitizeUsername(rawValue) {
+  return rawValue.trim().replace(/\s+/g, " ").slice(0, 24);
+}
+
+function setLandingStatus(message) {
+  elements.landingStatus.textContent = message;
 }
 
 function loadMapsApi() {
@@ -92,6 +124,36 @@ function formatMeters(value) {
     return `${(value / 1000).toFixed(2)} km`;
   }
   return `${Math.round(value)} m`;
+}
+
+function serializeFogTrail() {
+  if (!state.visitedPositions.length) {
+    return [];
+  }
+
+  const step = Math.max(1, Math.ceil(state.visitedPositions.length / MAX_FOG_PAYLOAD_POINTS));
+  const trail = [];
+
+  for (let index = 0; index < state.visitedPositions.length; index += step) {
+    const point = state.visitedPositions[index];
+    trail.push({
+      lat: Number(point.lat().toFixed(6)),
+      lng: Number(point.lng().toFixed(6))
+    });
+  }
+
+  const lastPoint = state.visitedPositions[state.visitedPositions.length - 1];
+  if (trail.length) {
+    const lastTrailPoint = trail[trail.length - 1];
+    if (lastTrailPoint.lat !== Number(lastPoint.lat().toFixed(6)) || lastTrailPoint.lng !== Number(lastPoint.lng().toFixed(6))) {
+      trail.push({
+        lat: Number(lastPoint.lat().toFixed(6)),
+        lng: Number(lastPoint.lng().toFixed(6))
+      });
+    }
+  }
+
+  return trail;
 }
 
 function setFogExpanded(expanded) {
@@ -289,10 +351,31 @@ function renderStats() {
   elements.moves.textContent = state.moveCount.toString();
   elements.clicks.textContent = state.clickCount.toString();
   elements.score.textContent = state.score.toString();
+  elements.discovered.textContent = state.visitedPositions.length.toString();
+}
+
+async function loadUserProfile(username) {
+  const response = await fetch(`${config.API_BASE_URL}/api/users/${encodeURIComponent(username)}/profile`);
+  if (!response.ok) {
+    elements.playerSummary.hidden = true;
+    return;
+  }
+
+  const profile = await response.json();
+  if (!profile?.latestSession) {
+    elements.playerSummary.hidden = true;
+    return;
+  }
+
+  elements.summaryScore.textContent = `Score: ${profile.latestSession.score}`;
+  elements.summaryMode.textContent = `Mode: ${profile.latestSession.mode}`;
+  elements.summaryDiscover.textContent = `Discovered points: ${profile.latestSession.discoveredPoints}`;
+  elements.playerSummary.hidden = false;
 }
 
 async function startSession() {
   const payload = {
+    username: state.username,
     startLocation: config.START_LOCATION,
     goalLocation: config.GOAL_LOCATION,
     mode: elements.mode.value,
@@ -324,7 +407,9 @@ async function completeSession() {
     elapsedMs: Date.now() - state.startedAt,
     moveCount: state.moveCount,
     clickCount: state.clickCount,
-    totalDistanceMeters: state.totalDistanceMeters
+    totalDistanceMeters: state.totalDistanceMeters,
+    fogTrail: serializeFogTrail(),
+    discoveredPoints: state.visitedPositions.length
   };
 
   const response = await fetch(
@@ -340,6 +425,8 @@ async function completeSession() {
     const errorText = await response.text();
     throw new Error(errorText || "Could not complete session.");
   }
+
+  return response.json();
 }
 
 async function loadLeaderboard() {
@@ -361,7 +448,7 @@ async function loadLeaderboard() {
 
   items.forEach((entry) => {
     const li = document.createElement("li");
-    li.textContent = `${entry.score} pts • ${Math.round(entry.elapsedMs / 1000)}s • ${entry.moveCount} moves`;
+    li.textContent = `${entry.username || "anon"} • ${entry.score} pts • ${Math.round(entry.elapsedMs / 1000)}s • ${entry.moveCount} moves`;
     elements.leaderboard.appendChild(li);
   });
 }
@@ -402,7 +489,12 @@ function onPositionChanged() {
     redrawFogMask();
     elements.status.textContent = "You reached the goal.";
     completeSession()
-      .then(() => loadLeaderboard())
+      .then((result) => {
+        if (result?.discoveredPoints) {
+          elements.discovered.textContent = result.discoveredPoints.toString();
+        }
+        return Promise.all([loadLeaderboard(), loadUserProfile(state.username)]);
+      })
       .catch((error) => {
         elements.status.textContent = `Win recorded locally, backend error: ${error.message}`;
       });
@@ -457,6 +549,10 @@ function resetState() {
 }
 
 async function restartGame() {
+  if (!state.username) {
+    return;
+  }
+
   resetState();
   initializeFogMap();
   setFogExpanded(false);
@@ -478,11 +574,45 @@ elements.fogToggle.addEventListener("click", () => {
   setFogExpanded(!state.fogExpanded);
 });
 
+elements.startGameBtn.addEventListener("click", async () => {
+  const username = sanitizeUsername(elements.usernameInput.value);
+  if (!username) {
+    setLandingStatus("Enter a username to continue.");
+    return;
+  }
+
+  state.username = username;
+  elements.playerName.textContent = username;
+  setLandingStatus("Loading profile...");
+  elements.startGameBtn.disabled = true;
+
+  try {
+    await loadUserProfile(username);
+    setLandingStatus("Starting game...");
+    setGameVisible(true);
+    await restartGame();
+  } catch (error) {
+    setLandingStatus(`Could not start game: ${error.message}`);
+    setGameVisible(false);
+  } finally {
+    elements.startGameBtn.disabled = false;
+    setLandingStatus("");
+  }
+});
+
+elements.usernameInput.addEventListener("keydown", (event) => {
+  if (event.key === "Enter") {
+    elements.startGameBtn.click();
+  }
+});
+
 async function bootstrap() {
   try {
     assertConfig();
     await loadMapsApi();
-    await restartGame();
+    setGameVisible(false);
+    state.gameInitialized = true;
+    elements.status.textContent = "Set username to start.";
   } catch (error) {
     elements.status.textContent = `Initialization failed: ${error.message}`;
   }
@@ -493,7 +623,9 @@ elements.restartBtn.addEventListener("click", () => {
 });
 
 elements.mode.addEventListener("change", () => {
-  restartGame();
+  if (state.username) {
+    restartGame();
+  }
 });
 
 bootstrap();

@@ -2,6 +2,7 @@ import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
 import crypto from "node:crypto";
+import pg from "pg";
 
 dotenv.config();
 
@@ -38,6 +39,57 @@ app.use(express.json());
 
 const sessions = new Map();
 const leaderboard = [];
+const { Pool } = pg;
+let pool = null;
+let postgresReady = false;
+
+if (process.env.DATABASE_URL) {
+  pool = new Pool({
+    connectionString: process.env.DATABASE_URL,
+    ssl: process.env.PG_SSL === "true" ? { rejectUnauthorized: false } : undefined
+  });
+}
+
+async function initializeDatabase() {
+  if (!pool) {
+    return;
+  }
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS sessions (
+      session_id TEXT PRIMARY KEY,
+      username TEXT NOT NULL,
+      mode TEXT NOT NULL,
+      start_lat DOUBLE PRECISION NOT NULL,
+      start_lng DOUBLE PRECISION NOT NULL,
+      goal_lat DOUBLE PRECISION NOT NULL,
+      goal_lng DOUBLE PRECISION NOT NULL,
+      win_radius_meters DOUBLE PRECISION NOT NULL,
+      started_at BIGINT NOT NULL,
+      completed_at BIGINT,
+      elapsed_ms INTEGER,
+      move_count INTEGER,
+      click_count INTEGER,
+      total_distance_meters DOUBLE PRECISION,
+      score INTEGER,
+      discovered_points INTEGER,
+      fog_trail JSONB
+    )
+  `);
+
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS sessions_mode_score_idx
+    ON sessions (mode, score, elapsed_ms)
+  `);
+
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS sessions_username_completed_idx
+    ON sessions (username, completed_at DESC)
+  `);
+
+  postgresReady = true;
+  console.log("PostgreSQL storage enabled");
+}
 
 function haversineMeters(a, b) {
   const R = 6371000;
@@ -73,12 +125,212 @@ function computeScore(payload, mode) {
   );
 }
 
+function sanitizeUsername(value) {
+  return String(value || "")
+    .trim()
+    .replace(/\s+/g, " ")
+    .slice(0, 24);
+}
+
+function sanitizeFogTrail(input) {
+  if (!Array.isArray(input)) {
+    return [];
+  }
+
+  return input
+    .slice(0, 1500)
+    .map((point) => ({
+      lat: Number(point?.lat),
+      lng: Number(point?.lng)
+    }))
+    .filter((point) => Number.isFinite(point.lat) && Number.isFinite(point.lng));
+}
+
+async function persistSessionStart(session) {
+  if (!postgresReady || !pool) {
+    return;
+  }
+
+  await pool.query(
+    `
+      INSERT INTO sessions (
+        session_id,
+        username,
+        mode,
+        start_lat,
+        start_lng,
+        goal_lat,
+        goal_lng,
+        win_radius_meters,
+        started_at
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+    `,
+    [
+      session.sessionId,
+      session.username,
+      session.mode,
+      session.startLocation.lat,
+      session.startLocation.lng,
+      session.goalLocation.lat,
+      session.goalLocation.lng,
+      session.winRadiusMeters,
+      session.startedAt
+    ]
+  );
+}
+
+async function persistSessionComplete(entry, sessionId) {
+  if (!postgresReady || !pool) {
+    return;
+  }
+
+  await pool.query(
+    `
+      UPDATE sessions
+      SET
+        completed_at = $2,
+        elapsed_ms = $3,
+        move_count = $4,
+        click_count = $5,
+        total_distance_meters = $6,
+        score = $7,
+        discovered_points = $8,
+        fog_trail = $9
+      WHERE session_id = $1
+    `,
+    [
+      sessionId,
+      entry.createdAt,
+      entry.elapsedMs,
+      entry.moveCount,
+      entry.clickCount,
+      entry.totalDistanceMeters,
+      entry.score,
+      entry.discoveredPoints,
+      JSON.stringify(entry.fogTrail)
+    ]
+  );
+}
+
+async function getLeaderboardRows(mode) {
+  if (postgresReady && pool) {
+    if (mode) {
+      const result = await pool.query(
+        `
+          SELECT
+            session_id AS "sessionId",
+            username,
+            mode,
+            elapsed_ms AS "elapsedMs",
+            move_count AS "moveCount",
+            click_count AS "clickCount",
+            total_distance_meters AS "totalDistanceMeters",
+            score,
+            discovered_points AS "discoveredPoints",
+            completed_at AS "createdAt"
+          FROM sessions
+          WHERE completed_at IS NOT NULL AND mode = $1
+          ORDER BY score ASC, elapsed_ms ASC
+          LIMIT 10
+        `,
+        [mode]
+      );
+      return result.rows;
+    }
+
+    const result = await pool.query(`
+      SELECT
+        session_id AS "sessionId",
+        username,
+        mode,
+        elapsed_ms AS "elapsedMs",
+        move_count AS "moveCount",
+        click_count AS "clickCount",
+        total_distance_meters AS "totalDistanceMeters",
+        score,
+        discovered_points AS "discoveredPoints",
+        completed_at AS "createdAt"
+      FROM sessions
+      WHERE completed_at IS NOT NULL
+      ORDER BY score ASC, elapsed_ms ASC
+      LIMIT 10
+    `);
+    return result.rows;
+  }
+
+  const rows = mode
+    ? leaderboard.filter((entry) => entry.mode === mode)
+    : leaderboard;
+
+  return rows.slice(0, 10);
+}
+
+async function getUserProfile(username) {
+  if (postgresReady && pool) {
+    const latestResult = await pool.query(
+      `
+        SELECT
+          session_id AS "sessionId",
+          username,
+          mode,
+          elapsed_ms AS "elapsedMs",
+          move_count AS "moveCount",
+          click_count AS "clickCount",
+          total_distance_meters AS "totalDistanceMeters",
+          score,
+          discovered_points AS "discoveredPoints",
+          fog_trail AS "fogTrail",
+          completed_at AS "createdAt"
+        FROM sessions
+        WHERE username = $1 AND completed_at IS NOT NULL
+        ORDER BY completed_at DESC
+        LIMIT 1
+      `,
+      [username]
+    );
+
+    const bestResult = await pool.query(
+      `
+        SELECT MIN(score) AS best_score
+        FROM sessions
+        WHERE username = $1 AND completed_at IS NOT NULL
+      `,
+      [username]
+    );
+
+    const latest = latestResult.rows[0] || null;
+    return {
+      username,
+      bestScore: bestResult.rows[0]?.best_score ? Number(bestResult.rows[0].best_score) : null,
+      latestSession: latest
+    };
+  }
+
+  const entries = leaderboard.filter((entry) => entry.username === username);
+  const latest = entries[0] || null;
+  const bestScore = entries.length
+    ? entries.reduce((best, item) => Math.min(best, item.score), entries[0].score)
+    : null;
+
+  return {
+    username,
+    bestScore,
+    latestSession: latest
+  };
+}
+
 app.get("/health", (_req, res) => {
   res.json({ ok: true });
 });
 
-app.post("/api/sessions/start", (req, res) => {
-  const { startLocation, goalLocation, mode, winRadiusMeters } = req.body ?? {};
+app.post("/api/sessions/start", async (req, res) => {
+  const { username, startLocation, goalLocation, mode, winRadiusMeters } = req.body ?? {};
+  const safeUsername = sanitizeUsername(username);
+
+  if (!safeUsername) {
+    res.status(400).json({ error: "username is required." });
+    return;
+  }
 
   if (!startLocation || !goalLocation) {
     res.status(400).json({ error: "startLocation and goalLocation are required." });
@@ -86,8 +338,9 @@ app.post("/api/sessions/start", (req, res) => {
   }
 
   const sessionId = crypto.randomUUID();
-  sessions.set(sessionId, {
+  const session = {
     sessionId,
+    username: safeUsername,
     startLocation,
     goalLocation,
     mode: mode || "speed-run",
@@ -95,12 +348,20 @@ app.post("/api/sessions/start", (req, res) => {
       Number(winRadiusMeters) || Number(process.env.DEFAULT_WIN_RADIUS_METERS || 15),
     startedAt: Date.now(),
     completed: false
-  });
+  };
+
+  sessions.set(sessionId, session);
+
+  try {
+    await persistSessionStart(session);
+  } catch (error) {
+    console.error("Failed to persist session start:", error.message);
+  }
 
   res.status(201).json({ sessionId });
 });
 
-app.post("/api/sessions/:sessionId/complete", (req, res) => {
+app.post("/api/sessions/:sessionId/complete", async (req, res) => {
   const session = sessions.get(req.params.sessionId);
   if (!session) {
     res.status(404).json({ error: "Session not found." });
@@ -112,7 +373,15 @@ app.post("/api/sessions/:sessionId/complete", (req, res) => {
     return;
   }
 
-  const { currentPosition, elapsedMs, moveCount, clickCount, totalDistanceMeters } = req.body ?? {};
+  const {
+    currentPosition,
+    elapsedMs,
+    moveCount,
+    clickCount,
+    totalDistanceMeters,
+    fogTrail,
+    discoveredPoints
+  } = req.body ?? {};
   if (!currentPosition || typeof elapsedMs !== "number") {
     res.status(400).json({ error: "currentPosition and elapsedMs are required." });
     return;
@@ -137,44 +406,82 @@ app.post("/api/sessions/:sessionId/complete", (req, res) => {
     clickCount: Number(clickCount || 0),
     totalDistanceMeters: Number(totalDistanceMeters || 0)
   };
+  const safeFogTrail = sanitizeFogTrail(fogTrail);
+  const safeDiscoveredPoints = Number(discoveredPoints || safeFogTrail.length || 0);
 
   const score = computeScore(payload, session.mode);
 
   session.completed = true;
   session.completedAt = Date.now();
 
-  leaderboard.push({
+  const entry = {
     sessionId: session.sessionId,
+    username: session.username,
     mode: session.mode,
     elapsedMs: payload.elapsedMs,
     moveCount: payload.moveCount,
     clickCount: payload.clickCount,
     totalDistanceMeters: payload.totalDistanceMeters,
     score,
+    discoveredPoints: Math.max(0, safeDiscoveredPoints),
+    fogTrail: safeFogTrail,
     createdAt: Date.now()
-  });
+  };
+
+  leaderboard.push(entry);
 
   leaderboard.sort((a, b) => a.score - b.score || a.elapsedMs - b.elapsedMs);
   if (leaderboard.length > 100) {
     leaderboard.length = 100;
   }
 
+  try {
+    await persistSessionComplete(entry, session.sessionId);
+  } catch (error) {
+    console.error("Failed to persist session completion:", error.message);
+  }
+
   res.json({
     win: true,
     score,
-    distanceToGoalMeters: Math.round(distanceToGoalMeters)
+    distanceToGoalMeters: Math.round(distanceToGoalMeters),
+    discoveredPoints: entry.discoveredPoints
   });
 });
 
-app.get("/api/leaderboard", (req, res) => {
+app.get("/api/leaderboard", async (req, res) => {
   const mode = req.query.mode;
-  const rows = mode
-    ? leaderboard.filter((entry) => entry.mode === mode)
-    : leaderboard;
 
-  res.json(rows.slice(0, 10));
+  try {
+    const rows = await getLeaderboardRows(mode);
+    res.json(rows);
+  } catch (error) {
+    res.status(500).json({ error: "Unable to load leaderboard." });
+  }
 });
 
-app.listen(port, () => {
-  console.log(`Street View Challenge backend listening on http://localhost:${port}`);
+app.get("/api/users/:username/profile", async (req, res) => {
+  const username = sanitizeUsername(req.params.username);
+  if (!username) {
+    res.status(400).json({ error: "Invalid username." });
+    return;
+  }
+
+  try {
+    const profile = await getUserProfile(username);
+    res.json(profile);
+  } catch (error) {
+    res.status(500).json({ error: "Unable to load user profile." });
+  }
 });
+
+initializeDatabase()
+  .catch((error) => {
+    console.warn("PostgreSQL init failed; falling back to in-memory storage:", error.message);
+    postgresReady = false;
+  })
+  .finally(() => {
+    app.listen(port, () => {
+      console.log(`Street View Challenge backend listening on http://localhost:${port}`);
+    });
+  });

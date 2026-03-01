@@ -5,7 +5,8 @@ Enjoy!
 ## Stack
 
 - Frontend: Vanilla JS + Google Maps JavaScript API (Street View + Geometry library)
-- Backend: Node.js + Express (session tracking, basic anti-cheat validation, leaderboard)
+- Backend: Node.js + Express (session tracking, anti-cheat validation, leaderboard, user profiles)
+- Database: Optional PostgreSQL (falls back to in-memory if `DATABASE_URL` is not set)
 
 ## Prerequisites
 
@@ -36,6 +37,11 @@ Copy `client/config.example.js` to `client/config.js` and set your key:
 
 Copy `server/.env.example` to `server/.env` and adjust values if needed.
 
+Optional PostgreSQL:
+
+- Set `DATABASE_URL` in `server/.env`
+- Set `PG_SSL=true` if your provider requires TLS
+
 ## 3) Install dependencies
 
 ```bash
@@ -64,6 +70,7 @@ Open: `http://localhost:5173`
 
 ## Gameplay behavior implemented
 
+- Landing page with username entry
 - Embed Street View at start location
 - Distance-to-goal tracking using Geometry library
 - Move + click counters
@@ -72,6 +79,8 @@ Open: `http://localhost:5173`
 - Basic lock-down controls (address hidden, no close button, no pan control)
 - Session start/complete reporting to backend
 - Leaderboard by game mode
+- User score history endpoint (`/api/users/:username/profile`)
+- Fog-of-war discovery tracking and persistence per session
 
 ## Modes
 
@@ -92,4 +101,4 @@ Follow Google Maps Platform Terms: https://cloud.google.com/maps-platform/terms
 - Daily seeded routes
 - Checkpoints / mandatory waypoints
 - Better anti-cheat via event history + server-side heuristics
-- PostgreSQL persistence instead of in-memory storage
+- Render full discovered-area replay from stored fog trail geometry

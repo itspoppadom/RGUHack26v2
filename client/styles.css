@@ -20,6 +20,53 @@ body {
   overflow: hidden;
 }
 
+#landing {
+  position: fixed;
+  inset: 0;
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  background: rgba(2, 6, 23, 0.74);
+}
+
+.landingCard {
+  width: min(460px, 92vw);
+  border-radius: 16px;
+  background: rgba(15, 23, 42, 0.9);
+  color: #fff;
+  padding: 20px;
+}
+
+.landingCard h1 {
+  margin: 0 0 8px;
+}
+
+.landingCard p {
+  margin: 6px 0;
+}
+
+#usernameInput {
+  margin-top: 4px;
+  width: 100%;
+  padding: 10px;
+  border-radius: 8px;
+  border: none;
+}
+
+.landingControls {
+  margin-top: 10px;
+}
+
+#landingStatus {
+  min-height: 1.2em;
+}
+
+#playerSummary {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.2);
+}
+
 #pano {
   position: fixed;
   inset: 0;
@@ -37,6 +84,10 @@ body {
   border-radius: 12px;
   padding: 12px;
   width: min(320px, 92vw);
+}
+
+.hidden {
+  display: none;
 }
 
 #hud {

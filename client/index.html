@@ -8,8 +8,28 @@
   </head>
   <body>
     <main>
+      <section id="landing" aria-label="Landing page">
+        <div class="landingCard">
+          <h1>Street View Challenge</h1>
+          <p>Set a username, then start your run.</p>
+          <label for="usernameInput">Username</label>
+          <input id="usernameInput" type="text" maxlength="24" placeholder="e.g. explorer01" />
+          <div class="landingControls">
+            <button id="startGameBtn" type="button">Start Game</button>
+          </div>
+          <p id="landingStatus" role="status"></p>
+          <div id="playerSummary" hidden>
+            <h2>Last Run</h2>
+            <p id="summaryScore">Score: --</p>
+            <p id="summaryMode">Mode: --</p>
+            <p id="summaryDiscover">Discovered points: --</p>
+          </div>
+        </div>
+      </section>
+
       <section id="hud" aria-label="Game stats">
         <h1>Street View Challenge</h1>
+        <div class="row"><span>Player</span><strong id="playerName">--</strong></div>
         <div class="row"><span>Mode</span><select id="mode">
           <option value="speed-run">Speed Run</option>
           <option value="efficiency">Efficiency</option>
@@ -20,6 +40,7 @@
         <div class="row"><span>Moves</span><strong id="moves">0</strong></div>
         <div class="row"><span>Clicks</span><strong id="clicks">0</strong></div>
         <div class="row"><span>Score</span><strong id="score">0</strong></div>
+        <div class="row"><span>Discovered</span><strong id="discovered">0</strong></div>
         <div class="controls">
           <button id="restartBtn" type="button">Restart</button>
         </div>
