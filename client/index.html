@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Street View Challenge</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main>
+      <section id="hud" aria-label="Game stats">
+        <h1>Street View Challenge</h1>
+        <div class="row"><span>Mode</span><select id="mode">
+          <option value="speed-run">Speed Run</option>
+          <option value="efficiency">Efficiency</option>
+          <option value="blind">Blind</option>
+        </select></div>
+        <div class="row"><span>Distance to goal</span><strong id="distance">--</strong></div>
+        <div class="row"><span>Timer</span><strong id="timer">00:00</strong></div>
+        <div class="row"><span>Moves</span><strong id="moves">0</strong></div>
+        <div class="row"><span>Clicks</span><strong id="clicks">0</strong></div>
+        <div class="row"><span>Score</span><strong id="score">0</strong></div>
+        <div class="controls">
+          <button id="restartBtn" type="button">Restart</button>
+        </div>
+        <p id="status" role="status">Initializing...</p>
+      </section>
+
+      <section id="leaderboardPanel" aria-label="Leaderboard">
+        <h2>Leaderboard</h2>
+        <ol id="leaderboard"></ol>
+      </section>
+
+      <section id="fogPanel" class="collapsed" aria-label="Fog of war map">
+        <div class="fogHeader">
+          <h2>Fog Map</h2>
+          <button id="fogToggle" type="button" aria-expanded="false">Show</button>
+        </div>
+        <div id="fogBody" hidden>
+          <div id="fogMapWrap">
+            <div id="fogMap" aria-label="Fog map"></div>
+            <canvas id="fogCanvas" aria-hidden="true"></canvas>
+          </div>
+        </div>
+      </section>
+
+      <div id="pano" aria-label="Street View panorama"></div>
+    </main>
+
+    <script src="./config.js"></script>
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>
