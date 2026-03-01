@@ -27,6 +27,7 @@ window.GAME_CONFIG = {
   CLICK_PENALTY: 2,
   QTE: {
     interceptLocation: { lat: 57.14696712569186, lng: -2.097676156362164 },
+    imageUrl: "./assets/seagull.png",
     triggerRadiusMeters: 5,
     requiredPresses: 18,
     durationMs: 7000,
@@ -40,6 +41,7 @@ window.GAME_CONFIG = {
     failMessage: "Too slow. The seagull nicked your chips and escaped."
   },
   ENCOUNTER: {
+    imageUrl: "./assets/kyle.png",
     triggerRadiusMeters: 5,
     locations: [
       { name: "Back Wynd", lat: 57.14742976842612, lng: -2.1002413606081154 },

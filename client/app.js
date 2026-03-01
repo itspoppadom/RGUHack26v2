@@ -26,12 +26,14 @@ const elements = {
   flashContinue: document.getElementById("flashContinue"),
   qteOverlay: document.getElementById("qteOverlay"),
   qteTitle: document.getElementById("qteTitle"),
+  qteImage: document.getElementById("qteImage"),
   qteMessage: document.getElementById("qteMessage"),
   qteCountdown: document.getElementById("qteCountdown"),
   qteProgress: document.getElementById("qteProgress"),
   qteClose: document.getElementById("qteClose"),
   encounterOverlay: document.getElementById("encounterOverlay"),
   encounterTitle: document.getElementById("encounterTitle"),
+  encounterImage: document.getElementById("encounterImage"),
   encounterMessage: document.getElementById("encounterMessage"),
   encounterChoices: document.getElementById("encounterChoices"),
   encounterIgnore: document.getElementById("encounterIgnore"),
@@ -108,6 +110,7 @@ const MAX_FOG_PAYLOAD_POINTS = 1200;
 const FIXED_MODE = "speed-run";
 const DEFAULT_QTE_CONFIG = {
   interceptLocation: { lat: 57.14696712569186, lng: -2.097676156362164 },
+  imageUrl: "",
   triggerRadiusMeters: 5,
   requiredPresses: 18,
   durationMs: 7000,
@@ -122,6 +125,7 @@ const DEFAULT_QTE_CONFIG = {
 };
 
 const DEFAULT_ENCOUNTER_CONFIG = {
+  imageUrl: "",
   triggerRadiusMeters: 5,
   locations: [
     { name: "Back Wynd", lat: 57.14742976842612, lng: -2.1002413606081154 },
@@ -218,6 +222,7 @@ function getQteConfig() {
     scoreReduction: Number.isFinite(source.scoreReduction)
       ? Math.max(0, Math.floor(source.scoreReduction))
       : DEFAULT_QTE_CONFIG.scoreReduction,
+    imageUrl: typeof source.imageUrl === "string" ? source.imageUrl.trim() : DEFAULT_QTE_CONFIG.imageUrl,
     successTitle: source.successTitle || DEFAULT_QTE_CONFIG.successTitle,
     successMessage: source.successMessage || DEFAULT_QTE_CONFIG.successMessage,
     introTitle: source.introTitle || DEFAULT_QTE_CONFIG.introTitle,
@@ -249,6 +254,7 @@ function getEncounterConfig() {
     cigarettePenalty: Number.isFinite(source.cigarettePenalty)
       ? Math.max(0, Math.floor(source.cigarettePenalty))
       : DEFAULT_ENCOUNTER_CONFIG.cigarettePenalty,
+    imageUrl: typeof source.imageUrl === "string" ? source.imageUrl.trim() : DEFAULT_ENCOUNTER_CONFIG.imageUrl,
     introTitle: source.introTitle || DEFAULT_ENCOUNTER_CONFIG.introTitle,
     introMessage: source.introMessage || DEFAULT_ENCOUNTER_CONFIG.introMessage,
     followupTitle: source.followupTitle || DEFAULT_ENCOUNTER_CONFIG.followupTitle,
@@ -335,6 +341,8 @@ function hideEncounterOverlay() {
   state.encounterPendingLocationKey = null;
   state.encounterStage = "none";
   elements.encounterOverlay.classList.add("hidden");
+  elements.encounterImage.removeAttribute("src");
+  elements.encounterImage.classList.add("hidden");
   elements.encounterClose.classList.add("hidden");
   setEncounterChoicesVisible(true);
   elements.encounterIgnore.textContent = "Ignore him";
@@ -367,6 +375,13 @@ function startEncounter(location) {
   state.encounterActive = true;
   state.encounterStage = "initial";
   elements.encounterTitle.textContent = `${encounter.introTitle} • ${location.name}`;
+  if (encounter.imageUrl) {
+    elements.encounterImage.src = encounter.imageUrl;
+    elements.encounterImage.classList.remove("hidden");
+  } else {
+    elements.encounterImage.removeAttribute("src");
+    elements.encounterImage.classList.add("hidden");
+  }
   elements.encounterMessage.textContent = encounter.introMessage;
   setEncounterChoicesVisible(true);
   elements.encounterClose.classList.add("hidden");
@@ -583,6 +598,8 @@ function hideQteOverlay() {
   state.qteDeadlineMs = 0;
   state.qteActive = false;
   elements.qteOverlay.classList.add("hidden");
+  elements.qteImage.removeAttribute("src");
+  elements.qteImage.classList.add("hidden");
   elements.qteClose.classList.add("hidden");
 }
 
@@ -617,6 +634,13 @@ function startQte() {
   state.qtePressCount = 0;
   const qte = getQteConfig();
   elements.qteTitle.textContent = qte.introTitle;
+  if (qte.imageUrl) {
+    elements.qteImage.src = qte.imageUrl;
+    elements.qteImage.classList.remove("hidden");
+  } else {
+    elements.qteImage.removeAttribute("src");
+    elements.qteImage.classList.add("hidden");
+  }
   elements.qteMessage.textContent = qte.introMessage;
   state.qteDeadlineMs = Date.now() + qte.durationMs;
   startQteCountdownTick();
