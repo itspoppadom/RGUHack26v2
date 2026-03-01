@@ -1,7 +1,7 @@
 # Street View Challenge (Starter Project)
 
 Full-stack starter for a Street View navigation game.
-
+Enjoy!
 ## Stack
 
 - Frontend: Vanilla JS + Google Maps JavaScript API (Street View + Geometry library)
