@@ -855,6 +855,7 @@ async function loadUserProfile(username) {
 
 async function startSession() {
   const level = getCurrentLevel();
+  state.sessionId = null;
 
   const payload = {
     username: state.username,
@@ -1052,6 +1053,7 @@ function resetState() {
   hideQteOverlay();
   clearRoundPreviewTimers();
   elements.fogPanel.classList.remove("map-preview");
+  state.sessionId = null;
   state.startedAt = Date.now();
   state.moveCount = 0;
   state.clickCount = 0;
@@ -1094,6 +1096,7 @@ async function restartGame() {
     await loadLeaderboard();
     elements.status.textContent = "Session started.";
   } catch (error) {
+    state.sessionId = null;
     elements.status.textContent = `Running without backend session: ${error.message}`;
   }
 }
