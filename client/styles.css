@@ -29,6 +29,10 @@ body {
   background: rgba(2, 6, 23, 0.74);
 }
 
+#landing.hidden {
+  display: none;
+}
+
 .landingCard {
   width: min(460px, 92vw);
   border-radius: 16px;

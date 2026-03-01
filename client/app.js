@@ -10,6 +10,7 @@ const elements = {
   summaryMode: document.getElementById("summaryMode"),
   summaryDiscover: document.getElementById("summaryDiscover"),
   playerName: document.getElementById("playerName"),
+  levelValue: document.getElementById("levelValue"),
   distance: document.getElementById("distance"),
   timer: document.getElementById("timer"),
   moves: document.getElementById("moves"),
@@ -36,6 +37,8 @@ const state = {
   sessionId: null,
   username: "",
   gameInitialized: false,
+  levels: [],
+  currentLevelIndex: 0,
   startedAt: 0,
   timerTick: null,
   moveCount: 0,
@@ -66,6 +69,42 @@ function assertConfig() {
   if (config.GOOGLE_MAPS_API_KEY === "REPLACE_ME") {
     elements.status.textContent = "Set client/config.js with your Google API key.";
   }
+}
+
+function normalizeLevels() {
+  const levels = Array.isArray(config.LEVELS) && config.LEVELS.length
+    ? config.LEVELS
+    : [{
+        name: "Level 1",
+        start: config.START_LOCATION,
+        goal: config.GOAL_LOCATION
+      }];
+
+  const validLevels = levels.filter((level) => {
+    const hasStart = level?.start && Number.isFinite(level.start.lat) && Number.isFinite(level.start.lng);
+    const hasGoal = level?.goal && Number.isFinite(level.goal.lat) && Number.isFinite(level.goal.lng);
+    return hasStart && hasGoal;
+  });
+
+  if (!validLevels.length) {
+    throw new Error("No valid levels configured.");
+  }
+
+  state.levels = validLevels.map((level, index) => ({
+    name: level.name || `Level ${index + 1}`,
+    start: level.start,
+    goal: level.goal
+  }));
+}
+
+function getCurrentLevel() {
+  return state.levels[state.currentLevelIndex] || state.levels[0];
+}
+
+function renderLevelMeta() {
+  const total = state.levels.length || 1;
+  const current = Math.min(state.currentLevelIndex + 1, total);
+  elements.levelValue.textContent = `${current} / ${total}`;
 }
 
 function setGameVisible(visible) {
@@ -262,8 +301,9 @@ function updateMiniMapPosition(current) {
 }
 
 function initializeFogMap() {
-  const start = new google.maps.LatLng(config.START_LOCATION.lat, config.START_LOCATION.lng);
-  const goal = new google.maps.LatLng(config.GOAL_LOCATION.lat, config.GOAL_LOCATION.lng);
+  const level = getCurrentLevel();
+  const start = new google.maps.LatLng(level.start.lat, level.start.lng);
+  const goal = new google.maps.LatLng(level.goal.lat, level.goal.lng);
 
   if (!state.miniMap) {
     state.miniMap = new google.maps.Map(elements.fogMap, {
@@ -374,10 +414,12 @@ async function loadUserProfile(username) {
 }
 
 async function startSession() {
+  const level = getCurrentLevel();
+
   const payload = {
     username: state.username,
-    startLocation: config.START_LOCATION,
-    goalLocation: config.GOAL_LOCATION,
+    startLocation: level.start,
+    goalLocation: level.goal,
     mode: elements.mode.value,
     winRadiusMeters: config.WIN_RADIUS_METERS
   };
@@ -487,13 +529,30 @@ function onPositionChanged() {
     state.goalMarker?.setVisible(true);
     setFogExpanded(true);
     redrawFogMask();
-    elements.status.textContent = "You reached the goal.";
+    const currentLevelNumber = state.currentLevelIndex + 1;
+    const hasNextLevel = currentLevelNumber < state.levels.length;
+    elements.status.textContent = hasNextLevel
+      ? `Level ${currentLevelNumber} complete.`
+      : "You reached the final goal.";
     completeSession()
       .then((result) => {
         if (result?.discoveredPoints) {
           elements.discovered.textContent = result.discoveredPoints.toString();
         }
-        return Promise.all([loadLeaderboard(), loadUserProfile(state.username)]);
+        return Promise.all([loadLeaderboard(), loadUserProfile(state.username)]).then(() => result);
+      })
+      .then(() => {
+        const nextLevelIndex = state.currentLevelIndex + 1;
+        if (nextLevelIndex < state.levels.length) {
+          state.currentLevelIndex = nextLevelIndex;
+          renderLevelMeta();
+          elements.status.textContent = `Starting Level ${nextLevelIndex + 1}...`;
+          setTimeout(() => {
+            restartGame();
+          }, 900);
+        } else {
+          elements.status.textContent = "All levels complete.";
+        }
       })
       .catch((error) => {
         elements.status.textContent = `Win recorded locally, backend error: ${error.message}`;
@@ -502,8 +561,9 @@ function onPositionChanged() {
 }
 
 function initializePanorama() {
-  state.goal = new google.maps.LatLng(config.GOAL_LOCATION.lat, config.GOAL_LOCATION.lng);
-  const start = config.START_LOCATION;
+  const level = getCurrentLevel();
+  state.goal = new google.maps.LatLng(level.goal.lat, level.goal.lng);
+  const start = level.start;
 
   state.panorama = new google.maps.StreetViewPanorama(document.getElementById("pano"), {
     position: start,
@@ -553,6 +613,7 @@ async function restartGame() {
     return;
   }
 
+  renderLevelMeta();
   resetState();
   initializeFogMap();
   setFogExpanded(false);
@@ -582,18 +643,19 @@ elements.startGameBtn.addEventListener("click", async () => {
   }
 
   state.username = username;
+  state.currentLevelIndex = 0;
+  renderLevelMeta();
   elements.playerName.textContent = username;
   setLandingStatus("Loading profile...");
   elements.startGameBtn.disabled = true;
+  setGameVisible(true);
 
   try {
     await loadUserProfile(username);
     setLandingStatus("Starting game...");
-    setGameVisible(true);
     await restartGame();
   } catch (error) {
-    setLandingStatus(`Could not start game: ${error.message}`);
-    setGameVisible(false);
+    elements.status.textContent = `Game error: ${error.message}`;
   } finally {
     elements.startGameBtn.disabled = false;
     setLandingStatus("");
@@ -609,6 +671,8 @@ elements.usernameInput.addEventListener("keydown", (event) => {
 async function bootstrap() {
   try {
     assertConfig();
+    normalizeLevels();
+    renderLevelMeta();
     await loadMapsApi();
     setGameVisible(false);
     state.gameInitialized = true;
