@@ -30,6 +30,14 @@ const elements = {
   qteCountdown: document.getElementById("qteCountdown"),
   qteProgress: document.getElementById("qteProgress"),
   qteClose: document.getElementById("qteClose"),
+  encounterOverlay: document.getElementById("encounterOverlay"),
+  encounterTitle: document.getElementById("encounterTitle"),
+  encounterMessage: document.getElementById("encounterMessage"),
+  encounterChoices: document.getElementById("encounterChoices"),
+  encounterIgnore: document.getElementById("encounterIgnore"),
+  encounterRefuse: document.getElementById("encounterRefuse"),
+  encounterGive: document.getElementById("encounterGive"),
+  encounterClose: document.getElementById("encounterClose"),
   distance: document.getElementById("distance"),
   timer: document.getElementById("timer"),
   moves: document.getElementById("moves"),
@@ -84,7 +92,12 @@ const state = {
   qteScoreReduction: 0,
   qteTimer: null,
   qteCountdownTick: null,
-  qteDeadlineMs: 0
+  qteDeadlineMs: 0,
+  encounterActive: false,
+  encounterScorePenalty: 0,
+  encounterTriggeredKeys: new Set(),
+  encounterPendingLocationKey: null,
+  encounterStage: "none"
 };
 
 const FOG_ZOOM_LEVEL = 17;
@@ -106,6 +119,25 @@ const DEFAULT_QTE_CONFIG = {
     "The Carry-on at St Nics has distracted you, and a seagull is trying to steal your chips! Press <T>, to T pose to assert dominance",
   failTitle: "Seagull wins this round",
   failMessage: "Too slow. The seagull nicked your chips and escaped."
+};
+
+const DEFAULT_ENCOUNTER_CONFIG = {
+  triggerRadiusMeters: 5,
+  locations: [
+    { name: "Back Wynd", lat: 57.14742976842612, lng: -2.1002413606081154 },
+    { name: "Adelphi", lat: 57.14719622585571, lng: -2.096379115839808 },
+    { name: "CastleGate", lat: 57.14833379776535, lng: -2.0923589520028507 },
+    { name: "The Green", lat: 57.14638876611122, lng: -2.0982205023250287 }
+  ],
+  moneyPenalty: 35,
+  cigarettePenalty: 20,
+  introTitle: "Kyle needs bus fare",
+  introMessage:
+    "A rough looking individual stops you and asks for £2 bus fare to visit his relative. What do you do?",
+  followupTitle: "Kyle asks for a cigarette",
+  followupMessage: "After taking your £2, Kyle asks for a cigarette as well.",
+  successMessage: "You passed the check. No score penalty applied.",
+  failMessage: "You gave him money. Score penalty applied."
 };
 
 const DEFAULT_SPLASH_CONFIG = {
@@ -195,6 +227,37 @@ function getQteConfig() {
   };
 }
 
+function getEncounterConfig() {
+  const source = config.ENCOUNTER || {};
+  const sourceLocations = Array.isArray(source.locations) ? source.locations : DEFAULT_ENCOUNTER_CONFIG.locations;
+  const locations = sourceLocations
+    .map((location, index) => ({
+      name: location?.name || `Location ${index + 1}`,
+      lat: Number(location?.lat),
+      lng: Number(location?.lng)
+    }))
+    .filter((location) => Number.isFinite(location.lat) && Number.isFinite(location.lng));
+
+  return {
+    triggerRadiusMeters: Number.isFinite(source.triggerRadiusMeters)
+      ? Math.max(1, source.triggerRadiusMeters)
+      : DEFAULT_ENCOUNTER_CONFIG.triggerRadiusMeters,
+    locations: locations.length ? locations : DEFAULT_ENCOUNTER_CONFIG.locations,
+    moneyPenalty: Number.isFinite(source.moneyPenalty)
+      ? Math.max(0, Math.floor(source.moneyPenalty))
+      : DEFAULT_ENCOUNTER_CONFIG.moneyPenalty,
+    cigarettePenalty: Number.isFinite(source.cigarettePenalty)
+      ? Math.max(0, Math.floor(source.cigarettePenalty))
+      : DEFAULT_ENCOUNTER_CONFIG.cigarettePenalty,
+    introTitle: source.introTitle || DEFAULT_ENCOUNTER_CONFIG.introTitle,
+    introMessage: source.introMessage || DEFAULT_ENCOUNTER_CONFIG.introMessage,
+    followupTitle: source.followupTitle || DEFAULT_ENCOUNTER_CONFIG.followupTitle,
+    followupMessage: source.followupMessage || DEFAULT_ENCOUNTER_CONFIG.followupMessage,
+    successMessage: source.successMessage || DEFAULT_ENCOUNTER_CONFIG.successMessage,
+    failMessage: source.failMessage || DEFAULT_ENCOUNTER_CONFIG.failMessage
+  };
+}
+
 function assertConfig() {
   if (!config || !config.GOOGLE_MAPS_API_KEY) {
     throw new Error("Missing window.GAME_CONFIG or GOOGLE_MAPS_API_KEY.");
@@ -261,6 +324,81 @@ function generateRunId() {
 
 function setLandingStatus(message) {
   elements.landingStatus.textContent = message;
+}
+
+function setEncounterChoicesVisible(visible) {
+  elements.encounterChoices.classList.toggle("hidden", !visible);
+}
+
+function hideEncounterOverlay() {
+  state.encounterActive = false;
+  state.encounterPendingLocationKey = null;
+  state.encounterStage = "none";
+  elements.encounterOverlay.classList.add("hidden");
+  elements.encounterClose.classList.add("hidden");
+  setEncounterChoicesVisible(true);
+  elements.encounterIgnore.textContent = "Ignore him";
+  elements.encounterRefuse.textContent = "Refuse";
+  elements.encounterGive.textContent = "Give £2";
+}
+
+function finalizeEncounter(message, appliedPenalty = 0) {
+  state.encounterActive = false;
+  state.encounterScorePenalty += Math.max(0, appliedPenalty);
+  renderStats();
+  elements.encounterMessage.textContent = message;
+  setEncounterChoicesVisible(false);
+  elements.encounterClose.classList.remove("hidden");
+}
+
+function startEncounter(location) {
+  if (state.encounterActive || state.won) {
+    return;
+  }
+
+  const encounter = getEncounterConfig();
+  const locationKey = `${location.name}:${location.lat.toFixed(6)},${location.lng.toFixed(6)}`;
+  if (state.encounterTriggeredKeys.has(locationKey)) {
+    return;
+  }
+
+  state.encounterTriggeredKeys.add(locationKey);
+  state.encounterPendingLocationKey = locationKey;
+  state.encounterActive = true;
+  state.encounterStage = "initial";
+  elements.encounterTitle.textContent = `${encounter.introTitle} • ${location.name}`;
+  elements.encounterMessage.textContent = encounter.introMessage;
+  setEncounterChoicesVisible(true);
+  elements.encounterClose.classList.add("hidden");
+  elements.encounterIgnore.textContent = "Ignore him";
+  elements.encounterRefuse.textContent = "Refuse to pay";
+  elements.encounterGive.textContent = "Give £2";
+  elements.encounterOverlay.classList.remove("hidden");
+}
+
+function maybeTriggerEncounter(currentPosition) {
+  if (state.encounterActive || state.won) {
+    return;
+  }
+
+  const encounter = getEncounterConfig();
+  const triggered = encounter.locations.find((location) => {
+    const locationKey = `${location.name}:${location.lat.toFixed(6)},${location.lng.toFixed(6)}`;
+    if (state.encounterTriggeredKeys.has(locationKey)) {
+      return false;
+    }
+
+    const distance = google.maps.geometry.spherical.computeDistanceBetween(
+      currentPosition,
+      new google.maps.LatLng(location.lat, location.lng)
+    );
+
+    return distance <= encounter.triggerRadiusMeters;
+  });
+
+  if (triggered) {
+    startEncounter(triggered);
+  }
 }
 
 function clearRoundPreviewTimers() {
@@ -810,7 +948,8 @@ function calculateScore(elapsedMs) {
       state.totalDistanceMeters +
         state.moveCount * (config.MOVE_PENALTY ?? 4) +
         state.clickCount * (config.CLICK_PENALTY ?? 2) -
-        state.qteScoreReduction
+        state.qteScoreReduction +
+        state.encounterScorePenalty
     ));
   }
 
@@ -818,7 +957,8 @@ function calculateScore(elapsedMs) {
     elapsedSeconds +
       state.moveCount * (config.MOVE_PENALTY ?? 4) +
       state.clickCount * (config.CLICK_PENALTY ?? 2) -
-      state.qteScoreReduction
+      state.qteScoreReduction +
+      state.encounterScorePenalty
   ));
 }
 
@@ -895,7 +1035,8 @@ async function completeSession() {
     totalDistanceMeters: state.totalDistanceMeters,
     fogTrail: serializeFogTrail(),
     discoveredPoints: state.visitedPositions.length,
-    qteScoreReduction: state.qteScoreReduction
+    qteScoreReduction: state.qteScoreReduction,
+    encounterScorePenalty: state.encounterScorePenalty
   };
 
   const response = await fetch(
@@ -969,6 +1110,7 @@ function onPositionChanged() {
   );
   updateMiniMapPosition(current);
   maybeTriggerQte(current);
+  maybeTriggerEncounter(current);
 
   renderStats();
 
@@ -1067,6 +1209,11 @@ function resetState() {
   state.qteActive = false;
   state.qtePressCount = 0;
   state.qteScoreReduction = 0;
+  state.encounterActive = false;
+  state.encounterScorePenalty = 0;
+  state.encounterTriggeredKeys = new Set();
+  state.encounterPendingLocationKey = null;
+  state.encounterStage = "none";
   elements.status.textContent = "Navigate to the hidden goal.";
   renderStats();
 
@@ -1111,6 +1258,66 @@ elements.fogToggle.addEventListener("click", () => {
 
 elements.qteClose.addEventListener("click", () => {
   hideQteOverlay();
+});
+
+elements.encounterIgnore.addEventListener("click", () => {
+  if (!state.encounterActive) {
+    return;
+  }
+  const encounter = getEncounterConfig();
+
+  if (state.encounterStage === "initial") {
+    finalizeEncounter(encounter.successMessage, 0);
+    return;
+  }
+
+  if (state.encounterStage === "followup") {
+    finalizeEncounter(`${encounter.failMessage} (+${encounter.moneyPenalty} penalty)`, encounter.moneyPenalty);
+  }
+});
+
+elements.encounterRefuse.addEventListener("click", () => {
+  if (!state.encounterActive) {
+    return;
+  }
+  const encounter = getEncounterConfig();
+
+  if (state.encounterStage === "initial") {
+    finalizeEncounter(encounter.successMessage, 0);
+    return;
+  }
+
+  if (state.encounterStage === "followup") {
+    const totalPenalty = encounter.moneyPenalty + encounter.cigarettePenalty;
+    finalizeEncounter(`${encounter.failMessage} (+${totalPenalty} penalty)`, totalPenalty);
+  }
+});
+
+elements.encounterGive.addEventListener("click", () => {
+  if (!state.encounterActive) {
+    return;
+  }
+
+  const encounter = getEncounterConfig();
+
+  if (state.encounterStage === "initial") {
+    state.encounterStage = "followup";
+    elements.encounterTitle.textContent = encounter.followupTitle;
+    elements.encounterMessage.textContent = encounter.followupMessage;
+    elements.encounterIgnore.textContent = "Refuse cigarette";
+    elements.encounterRefuse.textContent = "Give cigarette";
+    elements.encounterGive.textContent = "Take your chances";
+    return;
+  }
+
+  if (state.encounterStage === "followup") {
+    const totalPenalty = encounter.moneyPenalty + encounter.cigarettePenalty;
+    finalizeEncounter(`${encounter.failMessage} (+${totalPenalty} penalty)`, totalPenalty);
+  }
+});
+
+elements.encounterClose.addEventListener("click", () => {
+  hideEncounterOverlay();
 });
 
 window.addEventListener("keydown", (event) => {

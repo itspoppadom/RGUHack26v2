@@ -38,5 +38,23 @@ window.GAME_CONFIG = {
     successMessage: "You T-posed hard. The seagull dropped your chips and flew off. Score reduced.",
     failTitle: "Seagull wins this round",
     failMessage: "Too slow. The seagull nicked your chips and escaped."
+  },
+  ENCOUNTER: {
+    triggerRadiusMeters: 5,
+    locations: [
+      { name: "Back Wynd", lat: 57.14742976842612, lng: -2.1002413606081154 },
+      { name: "Adelphi", lat: 57.14719622585571, lng: -2.096379115839808 },
+      { name: "CastleGate", lat: 57.14833379776535, lng: -2.0923589520028507 },
+      { name: "The Green", lat: 57.14638876611122, lng: -2.0982205023250287 }
+    ],
+    moneyPenalty: 35,
+    cigarettePenalty: 20,
+    introTitle: "Kyle needs bus fare",
+    introMessage:
+      "A rough looking individual has stopped you and asks for £2 bus fare to visit his relative. What do you do?",
+    followupTitle: "Kyle asks for a cigarette",
+    followupMessage: "After taking your £2, Kyle asks for a cigarette as well.",
+    successMessage: "You stood your ground. No score penalty applied.",
+    failMessage: "You paid Kyle. Score penalty applied."
   }
 };
