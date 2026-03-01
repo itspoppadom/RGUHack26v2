@@ -6,6 +6,10 @@ const elements = {
   splashTitle: document.getElementById("splashTitle"),
   splashSubtitle: document.getElementById("splashSubtitle"),
   splashContinue: document.getElementById("splashContinue"),
+  rules: document.getElementById("rules"),
+  rulesTitle: document.getElementById("rulesTitle"),
+  rulesContent: document.getElementById("rulesContent"),
+  rulesContinue: document.getElementById("rulesContinue"),
   landing: document.getElementById("landing"),
   usernameInput: document.getElementById("usernameInput"),
   startGameBtn: document.getElementById("startGameBtn"),
@@ -99,7 +103,8 @@ const state = {
   encounterScorePenalty: 0,
   encounterTriggeredKeys: new Set(),
   encounterPendingLocationKey: null,
-  encounterStage: "none"
+  encounterStage: "none",
+  encounterType: "none"
 };
 
 const FOG_ZOOM_LEVEL = 17;
@@ -144,6 +149,25 @@ const DEFAULT_ENCOUNTER_CONFIG = {
   failMessage: "You gave him money. Score penalty applied."
 };
 
+const DEFAULT_ENCOUNTER_BUCKFAST_CONFIG = {
+  initialImageUrl: "",
+  inspectedImageUrl: "",
+  triggerRadiusMeters: 5,
+  locations: [
+    { name: "Carmelite Street", lat: 57.14532411939621, lng: -2.098603474583646 }
+  ],
+  scoreMultiplier: 0.4,
+  introTitle: "Mysterious Discovery",
+  introMessage:
+    "On your travels you stumble across a shiny object gleaming from behind a brush. Would you like to inspect it closer, or keep walking?",
+  inspectTitle: "A Bottle of Buckfast!",
+  inspectMessage:
+    "Inspecting the object reveals that it is actually a bottle of Buckfast. Drinking will set your score as current score × 0.4. Not drinking doesn't affect anything.",
+  keepWalkingSuccess: "You kept walking. No score penalty applied.",
+  drinkMessage: "You drank the Buckfast. Your score has been multiplied by 0.4.",
+  notDrinkSuccess: "You decided not to drink. No score penalty applied."
+};
+
 const DEFAULT_SPLASH_CONFIG = {
   enabled: true,
   imageUrl: "",
@@ -163,21 +187,67 @@ function getSplashConfig() {
   };
 }
 
+function getRulesConfig() {
+  const source = config.RULES || {};
+  return {
+    title: source.title || "How to Play",
+    sections: Array.isArray(source.sections) ? source.sections : [],
+    continueLabel: source.continueLabel || "Start Game"
+  };
+}
+
 function setLandingVisible(visible) {
   elements.landing.classList.toggle("hidden", !visible);
+}
+
+function setRulesVisible(visible) {
+  elements.rules.classList.toggle("hidden", !visible);
 }
 
 function showSplash() {
   setGameVisible(false);
   setLandingVisible(false);
+  setRulesVisible(false);
   elements.splash.classList.remove("hidden");
 }
 
-function hideSplashShowLanding() {
+function showRules() {
   elements.splash.classList.add("hidden");
+  setGameVisible(false);
+  setLandingVisible(false);
+  setRulesVisible(true);
+}
+
+function hideRulesShowLanding() {
+  elements.rules.classList.add("hidden");
   setGameVisible(false);
   setLandingVisible(true);
   elements.usernameInput.focus();
+}
+
+function initializeRules() {
+  const rules = getRulesConfig();
+  elements.rulesTitle.textContent = rules.title;
+  elements.rulesContinue.textContent = rules.continueLabel;
+  
+  // Build rules content from sections
+  elements.rulesContent.innerHTML = "";
+  if (Array.isArray(rules.sections)) {
+    rules.sections.forEach(section => {
+      const sectionDiv = document.createElement("div");
+      sectionDiv.className = "rulesSection";
+      
+      const heading = document.createElement("h3");
+      heading.textContent = section.heading || "";
+      
+      const content = document.createElement("p");
+      content.textContent = section.content || "";
+      
+      sectionDiv.appendChild(heading);
+      sectionDiv.appendChild(content);
+      elements.rulesContent.appendChild(sectionDiv);
+    });
+  }
 }
 
 function initializeSplash() {
@@ -194,10 +264,12 @@ function initializeSplash() {
     elements.splashImage.classList.add("hidden");
   }
 
+  initializeRules();
+
   if (splash.enabled) {
     showSplash();
   } else {
-    hideSplashShowLanding();
+    showRules();
   }
 }
 
@@ -261,6 +333,37 @@ function getEncounterConfig() {
     followupMessage: source.followupMessage || DEFAULT_ENCOUNTER_CONFIG.followupMessage,
     successMessage: source.successMessage || DEFAULT_ENCOUNTER_CONFIG.successMessage,
     failMessage: source.failMessage || DEFAULT_ENCOUNTER_CONFIG.failMessage
+  };
+}
+
+function getBuckfastEncounterConfig() {
+  const source = config.ENCOUNTER_BUCKFAST || {};
+  const sourceLocations = Array.isArray(source.locations) ? source.locations : DEFAULT_ENCOUNTER_BUCKFAST_CONFIG.locations;
+  const locations = sourceLocations
+    .map((location, index) => ({
+      name: location?.name || `Location ${index + 1}`,
+      lat: Number(location?.lat),
+      lng: Number(location?.lng)
+    }))
+    .filter((location) => Number.isFinite(location.lat) && Number.isFinite(location.lng));
+
+  return {
+    triggerRadiusMeters: Number.isFinite(source.triggerRadiusMeters)
+      ? Math.max(1, source.triggerRadiusMeters)
+      : DEFAULT_ENCOUNTER_BUCKFAST_CONFIG.triggerRadiusMeters,
+    locations: locations.length ? locations : DEFAULT_ENCOUNTER_BUCKFAST_CONFIG.locations,
+    scoreMultiplier: Number.isFinite(source.scoreMultiplier)
+      ? Math.max(0, source.scoreMultiplier)
+      : DEFAULT_ENCOUNTER_BUCKFAST_CONFIG.scoreMultiplier,
+    initialImageUrl: typeof source.initialImageUrl === "string" ? source.initialImageUrl.trim() : DEFAULT_ENCOUNTER_BUCKFAST_CONFIG.initialImageUrl,
+    inspectedImageUrl: typeof source.inspectedImageUrl === "string" ? source.inspectedImageUrl.trim() : DEFAULT_ENCOUNTER_BUCKFAST_CONFIG.inspectedImageUrl,
+    introTitle: source.introTitle || DEFAULT_ENCOUNTER_BUCKFAST_CONFIG.introTitle,
+    introMessage: source.introMessage || DEFAULT_ENCOUNTER_BUCKFAST_CONFIG.introMessage,
+    inspectTitle: source.inspectTitle || DEFAULT_ENCOUNTER_BUCKFAST_CONFIG.inspectTitle,
+    inspectMessage: source.inspectMessage || DEFAULT_ENCOUNTER_BUCKFAST_CONFIG.inspectMessage,
+    keepWalkingSuccess: source.keepWalkingSuccess || DEFAULT_ENCOUNTER_BUCKFAST_CONFIG.keepWalkingSuccess,
+    drinkMessage: source.drinkMessage || DEFAULT_ENCOUNTER_BUCKFAST_CONFIG.drinkMessage,
+    notDrinkSuccess: source.notDrinkSuccess || DEFAULT_ENCOUNTER_BUCKFAST_CONFIG.notDrinkSuccess
   };
 }
 
@@ -340,6 +443,7 @@ function hideEncounterOverlay() {
   state.encounterActive = false;
   state.encounterPendingLocationKey = null;
   state.encounterStage = "none";
+  state.encounterType = "none";
   elements.encounterOverlay.classList.add("hidden");
   elements.encounterImage.removeAttribute("src");
   elements.encounterImage.classList.add("hidden");
@@ -413,6 +517,76 @@ function maybeTriggerEncounter(currentPosition) {
 
   if (triggered) {
     startEncounter(triggered);
+  }
+}
+
+function startBuckfastEncounter(location) {
+  if (state.encounterActive || state.won) {
+    return;
+  }
+
+  const encounter = getBuckfastEncounterConfig();
+  const locationKey = `${location.name}:${location.lat.toFixed(6)},${location.lng.toFixed(6)}`;
+  if (state.encounterTriggeredKeys.has(locationKey)) {
+    return;
+  }
+
+  state.encounterTriggeredKeys.add(locationKey);
+  state.encounterPendingLocationKey = locationKey;
+  state.encounterActive = true;
+  state.encounterType = "buckfast";
+  state.encounterStage = "initial";
+  elements.encounterTitle.textContent = `${encounter.introTitle} • ${location.name}`;
+  if (encounter.initialImageUrl) {
+    elements.encounterImage.src = encounter.initialImageUrl;
+    elements.encounterImage.classList.remove("hidden");
+  } else {
+    elements.encounterImage.removeAttribute("src");
+    elements.encounterImage.classList.add("hidden");
+  }
+  elements.encounterMessage.textContent = encounter.introMessage;
+  setEncounterChoicesVisible(true);
+  elements.encounterClose.classList.add("hidden");
+  elements.encounterIgnore.textContent = "Keep walking";
+  elements.encounterRefuse.textContent = "";
+  elements.encounterGive.textContent = "Inspect it";
+  elements.encounterRefuse.style.display = "none";
+  elements.encounterOverlay.classList.remove("hidden");
+}
+
+function finalizeBuckfastEncounter(message, drinkScore = 0) {
+  state.encounterActive = false;
+  if (drinkScore > 0) {
+    state.score = Math.floor(state.score * drinkScore);
+  }
+  renderStats();
+  elements.encounterMessage.textContent = message;
+  setEncounterChoicesVisible(false);
+  elements.encounterClose.classList.remove("hidden");
+}
+
+function maybeTriggerBuckfastEncounter(currentPosition) {
+  if (state.encounterActive || state.won) {
+    return;
+  }
+
+  const encounter = getBuckfastEncounterConfig();
+  const triggered = encounter.locations.find((location) => {
+    const locationKey = `${location.name}:${location.lat.toFixed(6)},${location.lng.toFixed(6)}`;
+    if (state.encounterTriggeredKeys.has(locationKey)) {
+      return false;
+    }
+
+    const distance = google.maps.geometry.spherical.computeDistanceBetween(
+      currentPosition,
+      new google.maps.LatLng(location.lat, location.lng)
+    );
+
+    return distance <= encounter.triggerRadiusMeters;
+  });
+
+  if (triggered) {
+    startBuckfastEncounter(triggered);
   }
 }
 
@@ -1135,6 +1309,7 @@ function onPositionChanged() {
   updateMiniMapPosition(current);
   maybeTriggerQte(current);
   maybeTriggerEncounter(current);
+  maybeTriggerBuckfastEncounter(current);
 
   renderStats();
 
@@ -1288,6 +1463,17 @@ elements.encounterIgnore.addEventListener("click", () => {
   if (!state.encounterActive) {
     return;
   }
+
+  // Handle Buckfast encounter
+  if (state.encounterType === "buckfast") {
+    const encounter = getBuckfastEncounterConfig();
+    if (state.encounterStage === "initial") {
+      finalizeBuckfastEncounter(encounter.keepWalkingSuccess, 0);
+    }
+    return;
+  }
+
+  // Handle regular encounter
   const encounter = getEncounterConfig();
 
   if (state.encounterStage === "initial") {
@@ -1304,6 +1490,17 @@ elements.encounterRefuse.addEventListener("click", () => {
   if (!state.encounterActive) {
     return;
   }
+
+  // Handle Buckfast encounter
+  if (state.encounterType === "buckfast") {
+    const encounter = getBuckfastEncounterConfig();
+    if (state.encounterStage === "inspected") {
+      finalizeBuckfastEncounter(encounter.notDrinkSuccess, 0);
+    }
+    return;
+  }
+
+  // Handle regular encounter
   const encounter = getEncounterConfig();
 
   if (state.encounterStage === "initial") {
@@ -1322,6 +1519,33 @@ elements.encounterGive.addEventListener("click", () => {
     return;
   }
 
+  // Handle Buckfast encounter
+  if (state.encounterType === "buckfast") {
+    const encounter = getBuckfastEncounterConfig();
+    if (state.encounterStage === "initial") {
+      // Move to inspected stage
+      state.encounterStage = "inspected";
+      elements.encounterTitle.textContent = encounter.inspectTitle;
+      if (encounter.inspectedImageUrl) {
+        elements.encounterImage.src = encounter.inspectedImageUrl;
+        elements.encounterImage.classList.remove("hidden");
+      }
+      elements.encounterMessage.textContent = encounter.inspectMessage;
+      elements.encounterIgnore.textContent = "Don't drink";
+      elements.encounterRefuse.textContent = "Drink it";
+      elements.encounterRefuse.style.display = "inline-block";
+      elements.encounterGive.textContent = "";
+      elements.encounterGive.style.display = "none";
+      return;
+    }
+
+    if (state.encounterStage === "inspected") {
+      finalizeBuckfastEncounter(encounter.drinkMessage, encounter.scoreMultiplier);
+    }
+    return;
+  }
+
+  // Handle regular encounter
   const encounter = getEncounterConfig();
 
   if (state.encounterStage === "initial") {
@@ -1391,7 +1615,11 @@ elements.startGameBtn.addEventListener("click", async () => {
 });
 
 elements.splashContinue.addEventListener("click", () => {
-  hideSplashShowLanding();
+  showRules();
+});
+
+elements.rulesContinue.addEventListener("click", () => {
+  hideRulesShowLanding();
 });
 
 elements.usernameInput.addEventListener("keydown", (event) => {
