@@ -152,19 +152,13 @@ function showRoundFlash(summary) {
   elements.roundFlash.classList.remove("hidden");
 
   return new Promise((resolve) => {
-    let resolved = false;
     const finish = () => {
-      if (resolved) {
-        return;
-      }
-      resolved = true;
       elements.flashContinue.removeEventListener("click", finish);
       hideRoundFlash();
       resolve();
     };
 
     elements.flashContinue.addEventListener("click", finish, { once: true });
-    state.roundFlashTimer = setTimeout(finish, 2200);
   });
 }
 
@@ -608,8 +602,10 @@ function onPositionChanged() {
           showRoundFlash(roundSummary).then(() => {
             state.currentLevelIndex = nextLevelIndex;
             renderLevelMeta();
-            elements.status.textContent = `Starting Level ${nextLevelIndex + 1}...`;
-            restartGame();
+            elements.status.textContent = `Starting Level ${nextLevelIndex + 1} in 3 seconds...`;
+            setTimeout(() => {
+              restartGame();
+            }, 3000);
           });
         } else {
           elements.status.textContent = "All levels complete.";
