@@ -171,7 +171,7 @@ const DEFAULT_ENCOUNTER_BUCKFAST_CONFIG = {
 const DEFAULT_SPLASH_CONFIG = {
   enabled: true,
   imageUrl: "",
-  title: "Street View Challenge",
+  title: "Escape Fae Deen!",
   subtitle: "Press continue to begin",
   continueLabel: "Continue"
 };

@@ -1,12 +1,28 @@
-# Street View Challenge (Starter Project)
+# Escape Fae Deen game (Starter Project)
 
 Full-stack starter for a Street View navigation game.
 Enjoy!
 ## Stack
 
-- Frontend: Vanilla JS + Google Maps JavaScript API (Street View + Geometry library)
-- Backend: Node.js + Express (session tracking, anti-cheat validation, leaderboard, user profiles)
-- Database: Optional PostgreSQL (falls back to in-memory if `DATABASE_URL` is not set)
+- **Frontend**: Vanilla JS + Google Maps JavaScript API (Street View, Geometry Library)
+  - Interactive Street View navigation with click-to-move mechanics
+  - Real-time distance tracking and scoring system
+  - Fog-of-war discovery map with persistent trail tracking
+  - Dynamic encounter system with decision-based consequences
+  - Quick-time event (QTE) mechanics for interactive challenges
+  - Responsive UI with leaderboard and player stats
+
+- **Backend**: Node.js + Express (port 3001)
+  - Session management and game state persistence
+  - Anti-cheat validation and event tracking
+  - Leaderboard ranking by game mode
+  - User profile and score history endpoints
+  - Runs database migration and initialization on startup
+
+- **Database**: Optional PostgreSQL (falls back to in-memory if `DATABASE_URL` is not set)
+  - Session records with scoring data
+  - User profiles and historical runs
+  - Fog trail geometry for discovery visualization
 
 ## Prerequisites
 

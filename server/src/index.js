@@ -585,6 +585,22 @@ app.get("/api/leaderboard", async (req, res) => {
   }
 });
 
+app.delete("/api/leaderboard", async (req, res) => {
+  try {
+    // Clear in-memory leaderboard
+    leaderboard.length = 0;
+
+    // Clear database leaderboard if PostgreSQL is available
+    if (postgresReady && pool) {
+      await pool.query(`DELETE FROM sessions WHERE completed_at IS NOT NULL`);
+    }
+
+    res.json({ success: true, message: "Leaderboard cleared." });
+  } catch (error) {
+    res.status(500).json({ error: "Unable to clear leaderboard." });
+  }
+});
+
 app.get("/api/users/:username/profile", async (req, res) => {
   const username = sanitizeUsername(req.params.username);
   if (!username) {
