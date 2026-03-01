@@ -71,6 +71,39 @@ body {
   border-top: 1px solid rgba(255, 255, 255, 0.2);
 }
 
+#roundFlash {
+  position: fixed;
+  inset: 0;
+  z-index: 3;
+  display: grid;
+  place-items: center;
+  background: rgba(2, 6, 23, 0.66);
+}
+
+#roundFlash.hidden {
+  display: none;
+}
+
+.flashCard {
+  width: min(420px, 90vw);
+  border-radius: 14px;
+  background: rgba(15, 23, 42, 0.92);
+  color: #fff;
+  padding: 18px;
+}
+
+.flashCard h2 {
+  margin-bottom: 10px;
+}
+
+.flashCard p {
+  margin: 6px 0;
+}
+
+#flashContinue {
+  margin-top: 10px;
+}
+
 #pano {
   position: fixed;
   inset: 0;

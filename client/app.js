@@ -11,6 +11,14 @@ const elements = {
   summaryDiscover: document.getElementById("summaryDiscover"),
   playerName: document.getElementById("playerName"),
   levelValue: document.getElementById("levelValue"),
+  roundFlash: document.getElementById("roundFlash"),
+  flashTitle: document.getElementById("flashTitle"),
+  flashLevel: document.getElementById("flashLevel"),
+  flashScore: document.getElementById("flashScore"),
+  flashTime: document.getElementById("flashTime"),
+  flashMoves: document.getElementById("flashMoves"),
+  flashDiscover: document.getElementById("flashDiscover"),
+  flashContinue: document.getElementById("flashContinue"),
   distance: document.getElementById("distance"),
   timer: document.getElementById("timer"),
   moves: document.getElementById("moves"),
@@ -53,7 +61,8 @@ const state = {
   goalMarker: null,
   fogCtx: null,
   fogExpanded: false,
-  visitedPositions: []
+  visitedPositions: [],
+  roundFlashTimer: null
 };
 
 const FOG_ZOOM_LEVEL = 17;
@@ -121,6 +130,42 @@ function sanitizeUsername(rawValue) {
 
 function setLandingStatus(message) {
   elements.landingStatus.textContent = message;
+}
+
+function hideRoundFlash() {
+  if (state.roundFlashTimer) {
+    clearTimeout(state.roundFlashTimer);
+    state.roundFlashTimer = null;
+  }
+  elements.roundFlash.classList.add("hidden");
+}
+
+function showRoundFlash(summary) {
+  hideRoundFlash();
+
+  elements.flashTitle.textContent = `Level ${summary.levelNumber} Complete`;
+  elements.flashLevel.textContent = `Level: ${summary.levelNumber}`;
+  elements.flashScore.textContent = `Score: ${summary.score}`;
+  elements.flashTime.textContent = `Time: ${formatDuration(summary.elapsedMs)}`;
+  elements.flashMoves.textContent = `Moves: ${summary.moveCount}`;
+  elements.flashDiscover.textContent = `Discovered: ${summary.discoveredPoints}`;
+  elements.roundFlash.classList.remove("hidden");
+
+  return new Promise((resolve) => {
+    let resolved = false;
+    const finish = () => {
+      if (resolved) {
+        return;
+      }
+      resolved = true;
+      elements.flashContinue.removeEventListener("click", finish);
+      hideRoundFlash();
+      resolve();
+    };
+
+    elements.flashContinue.addEventListener("click", finish, { once: true });
+    state.roundFlashTimer = setTimeout(finish, 2200);
+  });
 }
 
 function loadMapsApi() {
@@ -490,7 +535,10 @@ async function loadLeaderboard() {
 
   items.forEach((entry) => {
     const li = document.createElement("li");
-    li.textContent = `${entry.username || "anon"} • ${entry.score} pts • ${Math.round(entry.elapsedMs / 1000)}s • ${entry.moveCount} moves`;
+    const roundsPlayed = entry.roundsPlayed ?? 1;
+    const elapsedMs = entry.totalElapsedMs ?? entry.elapsedMs ?? 0;
+    const totalMoves = entry.totalMoveCount ?? entry.moveCount ?? 0;
+    li.textContent = `${entry.username || "anon"} • ${entry.score} pts total • ${roundsPlayed} rounds • ${Math.round(elapsedMs / 1000)}s • ${totalMoves} moves`;
     elements.leaderboard.appendChild(li);
   });
 }
@@ -531,6 +579,13 @@ function onPositionChanged() {
     redrawFogMask();
     const currentLevelNumber = state.currentLevelIndex + 1;
     const hasNextLevel = currentLevelNumber < state.levels.length;
+    const roundSummary = {
+      levelNumber: currentLevelNumber,
+      elapsedMs: Date.now() - state.startedAt,
+      moveCount: state.moveCount,
+      discoveredPoints: state.visitedPositions.length,
+      score: state.score
+    };
     elements.status.textContent = hasNextLevel
       ? `Level ${currentLevelNumber} complete.`
       : "You reached the final goal.";
@@ -539,17 +594,23 @@ function onPositionChanged() {
         if (result?.discoveredPoints) {
           elements.discovered.textContent = result.discoveredPoints.toString();
         }
+        if (typeof result?.score === "number") {
+          roundSummary.score = result.score;
+        }
+        if (typeof result?.discoveredPoints === "number") {
+          roundSummary.discoveredPoints = result.discoveredPoints;
+        }
         return Promise.all([loadLeaderboard(), loadUserProfile(state.username)]).then(() => result);
       })
       .then(() => {
         const nextLevelIndex = state.currentLevelIndex + 1;
         if (nextLevelIndex < state.levels.length) {
-          state.currentLevelIndex = nextLevelIndex;
-          renderLevelMeta();
-          elements.status.textContent = `Starting Level ${nextLevelIndex + 1}...`;
-          setTimeout(() => {
+          showRoundFlash(roundSummary).then(() => {
+            state.currentLevelIndex = nextLevelIndex;
+            renderLevelMeta();
+            elements.status.textContent = `Starting Level ${nextLevelIndex + 1}...`;
             restartGame();
-          }, 900);
+          });
         } else {
           elements.status.textContent = "All levels complete.";
         }
@@ -586,6 +647,7 @@ function initializePanorama() {
 }
 
 function resetState() {
+  hideRoundFlash();
   state.startedAt = Date.now();
   state.moveCount = 0;
   state.clickCount = 0;

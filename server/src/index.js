@@ -218,19 +218,18 @@ async function getLeaderboardRows(mode) {
       const result = await pool.query(
         `
           SELECT
-            session_id AS "sessionId",
             username,
             mode,
-            elapsed_ms AS "elapsedMs",
-            move_count AS "moveCount",
-            click_count AS "clickCount",
-            total_distance_meters AS "totalDistanceMeters",
-            score,
-            discovered_points AS "discoveredPoints",
-            completed_at AS "createdAt"
+            SUM(score)::int AS score,
+            COUNT(*)::int AS "roundsPlayed",
+            SUM(elapsed_ms)::int AS "totalElapsedMs",
+            SUM(move_count)::int AS "totalMoveCount",
+            SUM(click_count)::int AS "totalClickCount",
+            MAX(completed_at)::bigint AS "createdAt"
           FROM sessions
           WHERE completed_at IS NOT NULL AND mode = $1
-          ORDER BY score ASC, elapsed_ms ASC
+          GROUP BY username, mode
+          ORDER BY score ASC, "totalElapsedMs" ASC
           LIMIT 10
         `,
         [mode]
@@ -240,19 +239,18 @@ async function getLeaderboardRows(mode) {
 
     const result = await pool.query(`
       SELECT
-        session_id AS "sessionId",
         username,
-        mode,
-        elapsed_ms AS "elapsedMs",
-        move_count AS "moveCount",
-        click_count AS "clickCount",
-        total_distance_meters AS "totalDistanceMeters",
-        score,
-        discovered_points AS "discoveredPoints",
-        completed_at AS "createdAt"
+        'all' AS mode,
+        SUM(score)::int AS score,
+        COUNT(*)::int AS "roundsPlayed",
+        SUM(elapsed_ms)::int AS "totalElapsedMs",
+        SUM(move_count)::int AS "totalMoveCount",
+        SUM(click_count)::int AS "totalClickCount",
+        MAX(completed_at)::bigint AS "createdAt"
       FROM sessions
       WHERE completed_at IS NOT NULL
-      ORDER BY score ASC, elapsed_ms ASC
+      GROUP BY username
+      ORDER BY score ASC, "totalElapsedMs" ASC
       LIMIT 10
     `);
     return result.rows;
@@ -262,7 +260,32 @@ async function getLeaderboardRows(mode) {
     ? leaderboard.filter((entry) => entry.mode === mode)
     : leaderboard;
 
-  return rows.slice(0, 10);
+  const combinedByUser = new Map();
+  rows.forEach((entry) => {
+    const key = entry.username || "anon";
+    const current = combinedByUser.get(key) || {
+      username: key,
+      mode: mode || "all",
+      score: 0,
+      roundsPlayed: 0,
+      totalElapsedMs: 0,
+      totalMoveCount: 0,
+      totalClickCount: 0,
+      createdAt: 0
+    };
+
+    current.score += Number(entry.score || 0);
+    current.roundsPlayed += 1;
+    current.totalElapsedMs += Number(entry.elapsedMs || 0);
+    current.totalMoveCount += Number(entry.moveCount || 0);
+    current.totalClickCount += Number(entry.clickCount || 0);
+    current.createdAt = Math.max(current.createdAt, Number(entry.createdAt || 0));
+    combinedByUser.set(key, current);
+  });
+
+  return [...combinedByUser.values()]
+    .sort((a, b) => a.score - b.score || a.totalElapsedMs - b.totalElapsedMs)
+    .slice(0, 10);
 }
 
 async function getUserProfile(username) {
