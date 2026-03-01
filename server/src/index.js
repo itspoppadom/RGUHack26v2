@@ -8,9 +8,30 @@ dotenv.config();
 const app = express();
 const port = Number(process.env.PORT || 3001);
 
+const configuredOrigins = (process.env.CLIENT_ORIGIN || "")
+  .split(",")
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+
+const defaultLocalOrigins = [
+  "http://localhost:5173",
+  "http://127.0.0.1:5173",
+  "http://0.0.0.0:5173"
+];
+
+const allowedOrigins = new Set(
+  configuredOrigins.length ? configuredOrigins : defaultLocalOrigins
+);
+
 app.use(
   cors({
-    origin: process.env.CLIENT_ORIGIN || "*"
+    origin(origin, callback) {
+      if (!origin || allowedOrigins.has(origin)) {
+        callback(null, true);
+        return;
+      }
+      callback(new Error(`CORS blocked for origin: ${origin}`));
+    }
   })
 );
 app.use(express.json());
