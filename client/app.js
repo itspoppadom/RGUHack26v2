@@ -37,7 +37,6 @@ const elements = {
   score: document.getElementById("score"),
   discovered: document.getElementById("discovered"),
   status: document.getElementById("status"),
-  mode: document.getElementById("mode"),
   restartBtn: document.getElementById("restartBtn"),
   hud: document.getElementById("hud"),
   leaderboardPanel: document.getElementById("leaderboardPanel"),
@@ -93,6 +92,7 @@ const FOG_ALPHA = 0.85;
 const FOG_REVEAL_RADIUS_PX = 32;
 const MAX_VISITED_POINTS = 2500;
 const MAX_FOG_PAYLOAD_POINTS = 1200;
+const FIXED_MODE = "speed-run";
 const DEFAULT_QTE_CONFIG = {
   interceptLocation: { lat: 57.14696712569186, lng: -2.097676156362164 },
   triggerRadiusMeters: 5,
@@ -802,7 +802,7 @@ function initializeFogMap() {
 }
 
 function calculateScore(elapsedMs) {
-  const mode = elements.mode.value;
+  const mode = FIXED_MODE;
   const elapsedSeconds = Math.floor(elapsedMs / 1000);
 
   if (mode === "efficiency") {
@@ -863,7 +863,7 @@ async function startSession() {
     expectedRounds: state.levels.length,
     startLocation: level.start,
     goalLocation: level.goal,
-    mode: elements.mode.value,
+    mode: FIXED_MODE,
     winRadiusMeters: config.WIN_RADIUS_METERS
   };
 
@@ -916,7 +916,7 @@ async function completeSession() {
 }
 
 async function loadLeaderboard() {
-  const mode = encodeURIComponent(elements.mode.value);
+  const mode = encodeURIComponent(FIXED_MODE);
   const response = await fetch(`${config.API_BASE_URL}/api/leaderboard?mode=${mode}`);
   if (!response.ok) {
     return;
@@ -1185,12 +1185,6 @@ async function bootstrap() {
 
 elements.restartBtn.addEventListener("click", () => {
   restartGame();
-});
-
-elements.mode.addEventListener("change", () => {
-  if (state.username) {
-    restartGame();
-  }
 });
 
 bootstrap();
