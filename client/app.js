@@ -34,12 +34,14 @@ const state = {
   playerMarker: null,
   goalMarker: null,
   fogCtx: null,
-  fogExpanded: false
+  fogExpanded: false,
+  visitedPositions: []
 };
 
 const FOG_ZOOM_LEVEL = 17;
 const FOG_ALPHA = 0.85;
 const FOG_REVEAL_RADIUS_PX = 32;
+const MAX_VISITED_POINTS = 2500;
 
 function assertConfig() {
   if (!config || !config.GOOGLE_MAPS_API_KEY) {
@@ -138,8 +140,33 @@ function redrawFogMask() {
   const ctx = state.fogCtx;
   const width = elements.fogCanvas.clientWidth;
   const height = elements.fogCanvas.clientHeight;
+  const projection = state.miniMap.getProjection();
+  const center = state.miniMap.getCenter();
+  const zoom = state.miniMap.getZoom();
   if (width <= 0 || height <= 0) {
     return;
+  }
+  if (!projection || !center || typeof zoom !== "number") {
+    return;
+  }
+
+  const scale = 2 ** zoom;
+  const centerWorld = projection.fromLatLngToPoint(center);
+
+  function toCanvasPoint(latLng) {
+    const world = projection.fromLatLngToPoint(latLng);
+    let dx = world.x - centerWorld.x;
+    if (dx > 0.5) {
+      dx -= 1;
+    }
+    if (dx < -0.5) {
+      dx += 1;
+    }
+    const dy = world.y - centerWorld.y;
+    return {
+      x: dx * scale + width / 2,
+      y: dy * scale + height / 2
+    };
   }
 
   ctx.globalCompositeOperation = "source-over";
@@ -148,9 +175,12 @@ function redrawFogMask() {
   ctx.fillRect(0, 0, width, height);
   ctx.globalCompositeOperation = "destination-out";
 
-  ctx.beginPath();
-  ctx.arc(width / 2, height / 2, FOG_REVEAL_RADIUS_PX, 0, Math.PI * 2);
-  ctx.fill();
+  state.visitedPositions.forEach((latLng) => {
+    const point = toCanvasPoint(latLng);
+    ctx.beginPath();
+    ctx.arc(point.x, point.y, FOG_REVEAL_RADIUS_PX, 0, Math.PI * 2);
+    ctx.fill();
+  });
 
   ctx.globalCompositeOperation = "source-over";
 }
@@ -161,6 +191,10 @@ function updateMiniMapPosition(current) {
   }
 
   state.playerMarker.setPosition(current);
+  state.visitedPositions.push(new google.maps.LatLng(current.lat(), current.lng()));
+  if (state.visitedPositions.length > MAX_VISITED_POINTS) {
+    state.visitedPositions.shift();
+  }
   state.miniMap.setCenter(current);
   redrawFogMask();
 }
@@ -217,6 +251,8 @@ function initializeFogMap() {
     state.goalMarker.setPosition(goal);
   }
   state.goalMarker.setVisible(false);
+
+  state.visitedPositions = [start];
 
   if (!state.fogCtx) {
     state.fogCtx = elements.fogCanvas.getContext("2d");
@@ -406,6 +442,7 @@ function resetState() {
   state.lastPosition = null;
   state.score = 0;
   state.won = false;
+  state.visitedPositions = [];
   elements.status.textContent = "Navigate to the hidden goal.";
   renderStats();
 
