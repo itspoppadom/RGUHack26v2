@@ -98,11 +98,6 @@ Open: `http://localhost:5173`
 - User score history endpoint (`/api/users/:username/profile`)
 - Fog-of-war discovery tracking and persistence per session
 
-## Modes
-
-- `speed-run`: fastest time favored
-- `efficiency`: shortest movement favored
-- `blind`: same rules as speed, no directional hints
 
 ## Legal / Terms note
 
