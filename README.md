@@ -1,7 +1,20 @@
-# Escape Fae Deen game (Starter Project)
+# Escape Fae Deen game (RGUHack 26 Project by SOCET Redemption)
 
-Full-stack starter for a Street View navigation game.
-Enjoy!
+
+A Point and Click escape game which utilizes the Google Street View API, to drop you in the city of Aberdeen. 
+Many locals admit, that sometimes navigating the city of Aberdeen, can lead to strange social interactions. 
+Some may be attacked by a seagull in pursuit of its dinner, while others may bump into someone dodgy trying to score a couple quid.
+These types of interactions have inspired some of the mechanics in this game. 
+
+3 Rounds 
+Simple Goal – Reach a form of escape from Aberdeen which is set as your finish line 
+Navigate through tricky interactions in City Centre 
+Reach your goal with lowest number of moves, and lowest score. 
+Compete against the leaderboard to be the best! 
+
+
+[Demo](https://youtu.be/oD-TQe0ldrY)
+
 ## Stack
 
 - **Frontend**: Vanilla JS + Google Maps JavaScript API (Street View, Geometry Library)
